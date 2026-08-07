@@ -28,8 +28,22 @@ will not switch development to Railway/Postgres. For a later Railway
 deployment, set `NODE_ENV=production`, `DB_PROVIDER=postgres`, and
 `DATABASE_URL` in Railway.
 
-`GET http://localhost:4000/health` reports the active database provider and
-location so the selected database can be verified before changing data.
+For Neon, use the rotated Neon connection string as a sealed Railway
+`DATABASE_URL` variable and set `NODE_ENV=production` plus
+`DB_PROVIDER=postgres`. Do not put production credentials in `.env`, source
+control, build arguments, or support messages. The application initializes its
+schema at runtime and reports `managed-postgres` through `/api/v1/health`.
+
+If Railway SQLite is used instead, attach a persistent volume to the web
+service at `/app/data`, then set `NODE_ENV=production`, `DB_PROVIDER=sqlite`,
+and `SQLITE_DB_PATH=/app/data/local.db`. Production startup intentionally fails
+when Railway SQLite has no mounted volume, preventing a silent empty database
+from being created inside a disposable deployment container. Configure daily,
+weekly, and monthly volume backups before entering production customer data.
+
+`GET http://localhost:4000/health` locally—or `/api/v1/health` through the
+deployed web app—reports the active database provider, location, persistence
+status, and storage mode so storage can be verified before changing data.
 
 `npm run start` serves the previously generated production build. Run `npm run build` before using it.
 

@@ -102,6 +102,45 @@ async function getUsers(req, res) {
     }
 }
 
+async function recoverUser(req, res, body) {
+    try {
+        const validation = validateRegisterInput(body);
+        if (!validation.valid) {
+            return errorResponse(res, validation.errors.join(', '), 400);
+        }
+
+        const requiredRecoveryFields = [
+            ['address', 'Address'],
+            ['country', 'Country'],
+            ['state', 'State'],
+            ['zip_code', 'ZIP/postal code'],
+            ['date_of_birth', 'Date of birth']
+        ];
+        const missing = requiredRecoveryFields
+            .filter(([field]) => !String(body[field] || '').trim())
+            .map(([, label]) => label);
+        if (missing.length) {
+            return errorResponse(res, `${missing.join(', ')} required for account recovery`, 400);
+        }
+
+        const user = await userService.registerRecoveredUser(body, req.user.id);
+        await activityService.logActivity({
+            user_id: user.id,
+            type: 'USER_ACCOUNT_RECOVERED',
+            description: `Customer account reconstructed by administrator ${req.user.id}; email confirmation required on first login`
+        });
+
+        return successResponse(
+            res,
+            user,
+            'Customer account recovered. Email ownership will be confirmed during first login.',
+            201
+        );
+    } catch (error) {
+        return errorResponse(res, error.message, 400);
+    }
+}
+
 async function getUserKyc(req, res, userId) {
     try {
         const user = await userService.fetchUserKyc(userId);
@@ -305,6 +344,7 @@ async function lookupUser(req, res, accountNumber) {
 
 module.exports = {
     register,
+    recoverUser,
     getUsers,
     getUserKyc,
     updateBalance,

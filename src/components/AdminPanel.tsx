@@ -70,7 +70,15 @@ interface BatchTransactionRow {
   transaction_date: string;
 }
 
-const todayDate = () => new Date().toISOString().split('T')[0];
+const currentLocalDateTime = () => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+const normalizeDateTimeInput = (value: unknown) => {
+  const normalized = String(value || '').trim().replace(' ', 'T');
+  if (!normalized) return currentLocalDateTime();
+  return normalized.length === 10 ? `${normalized}T00:00` : normalized.slice(0, 16);
+};
 
 const createBatchTransactionRow = (): BatchTransactionRow => ({
   id: crypto.randomUUID(),
@@ -78,7 +86,7 @@ const createBatchTransactionRow = (): BatchTransactionRow => ({
   type: 'CREDIT',
   amount: '',
   description: '',
-  transaction_date: todayDate()
+  transaction_date: currentLocalDateTime()
 });
 
 const unwrapApiData = (payload: any) => payload?.data || payload || [];
@@ -114,10 +122,19 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
   const [txnType, setTxnType] = useState('CREDIT');
   const [txnAmount, setTxnAmount] = useState('');
   const [txnDesc, setTxnDesc] = useState('');
-  const [txnDate, setTxnDate] = useState(todayDate());
+  const [txnDate, setTxnDate] = useState(currentLocalDateTime());
   const [txnOriginName, setTxnOriginName] = useState('');
   const [txnOriginBank, setTxnOriginBank] = useState('');
   const [txnOriginAccount, setTxnOriginAccount] = useState('');
+  const [recoveryTransferUserId, setRecoveryTransferUserId] = useState('');
+  const [recoveryTransferType, setRecoveryTransferType] = useState<'INTERNAL' | 'EXTERNAL'>('EXTERNAL');
+  const [recoveryTransferStatus, setRecoveryTransferStatus] = useState<'PENDING' | 'COMPLETED'>('PENDING');
+  const [recoveryTransferAmount, setRecoveryTransferAmount] = useState('');
+  const [recoveryTransferDate, setRecoveryTransferDate] = useState(currentLocalDateTime());
+  const [recoveryRecipientName, setRecoveryRecipientName] = useState('');
+  const [recoveryRecipientBank, setRecoveryRecipientBank] = useState('');
+  const [recoveryRecipientAccount, setRecoveryRecipientAccount] = useState('');
+  const [recoveryTransferDescription, setRecoveryTransferDescription] = useState('');
   const [batchTransactions, setBatchTransactions] = useState<BatchTransactionRow[]>([
     createBatchTransactionRow(),
     createBatchTransactionRow()
@@ -135,6 +152,16 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
   const [addCountry, setAddCountry] = useState('United States of America');
   const [addCurrency, setAddCurrency] = useState('USD');
   const [addDob, setAddDob] = useState('');
+  const [addAccountNumber, setAddAccountNumber] = useState('');
+  const [addAccountType, setAddAccountType] = useState('CHECKING');
+  const [addGender, setAddGender] = useState('');
+  const [addState, setAddState] = useState('');
+  const [addZipCode, setAddZipCode] = useState('');
+  const [addMaritalStatus, setAddMaritalStatus] = useState('');
+  const [addOccupation, setAddOccupation] = useState('');
+  const [addAddress, setAddAddress] = useState('');
+  const [addGovernmentId, setAddGovernmentId] = useState('');
+  const [addCreatedAt, setAddCreatedAt] = useState('');
 
   // Editing Row State
   const [editingUserId, setEditingUserId] = useState<number | string | null>(null);
@@ -454,6 +481,48 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
     }
   };
 
+  const handleRecoverTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResponseMsg('');
+    try {
+      const res = await fetch('/api/v1/admin/transfers/recover', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          sender_id: recoveryTransferUserId,
+          transfer_type: recoveryTransferType,
+          status: recoveryTransferStatus,
+          amount: Number(recoveryTransferAmount),
+          transaction_date: recoveryTransferDate,
+          recipient_name: recoveryRecipientName,
+          recipient_bank: recoveryRecipientBank,
+          recipient_account_number: recoveryRecipientAccount,
+          description: recoveryTransferDescription || 'Bank Transfer'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || data.error || 'Could not recover transfer.');
+
+      setResponseMsg(
+        recoveryTransferStatus === 'PENDING'
+          ? 'Pending transfer recovered. Its amount is now reserved from the customer balance.'
+          : 'Completed transfer recovered without a duplicate debit.'
+      );
+      setRecoveryTransferAmount('');
+      setRecoveryRecipientName('');
+      setRecoveryRecipientBank('');
+      setRecoveryRecipientAccount('');
+      setRecoveryTransferDescription('');
+      setRecoveryTransferDate(currentLocalDateTime());
+      fetchData();
+    } catch (error: any) {
+      setResponseMsg(error.message || 'Could not recover transfer.');
+    }
+  };
+
   const handleUpdateBatchTransaction = (
     rowId: string,
     field: keyof Omit<BatchTransactionRow, 'id'>,
@@ -509,7 +578,9 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
 
       const rows = entries.map((entry: any) => {
         const type = String(entry.type || 'CREDIT').trim().toUpperCase();
-        const transactionDate = String(entry.transaction_date || entry.transactionDate || entry.date || todayDate()).split('T')[0];
+        const transactionDate = normalizeDateTimeInput(
+          entry.transaction_date || entry.transactionDate || entry.timestamp || entry.date
+        );
 
         return {
           id: crypto.randomUUID(),
@@ -585,10 +656,11 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
     e.preventDefault();
     setResponseMsg('');
     try {
-      const res = await fetch('/api/v1/users/register', {
+      const res = await fetch('/api/v1/admin/users/recover', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           first_name: addFirstName,
@@ -600,12 +672,23 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
           country: addCountry,
           preferred_currency: addCurrency,
           date_of_birth: addDob,
+          account_number: addAccountNumber,
+          account_type: addAccountType,
+          gender: addGender,
+          state: addState,
+          zip_code: addZipCode,
+          marital_status: addMaritalStatus,
+          occupation: addOccupation,
+          address: addAddress,
+          government_id_number: addGovernmentId,
+          created_at: addCreatedAt,
+          force_password_change: true,
           transfer_pin: null
         })
       });
       const data = await res.json();
       if (res.ok) {
-        setResponseMsg(`Member '${addFirstName} ${addLastName}' registered successfully!`);
+        setResponseMsg(`Recovered '${addFirstName} ${addLastName}'. Their first login will confirm the email address.`);
         setShowAddUser(false);
         setAddFirstName('');
         setAddLastName('');
@@ -614,6 +697,16 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
         setAddPhone('');
         setAddPassword('');
         setAddDob('');
+        setAddAccountNumber('');
+        setAddAccountType('CHECKING');
+        setAddGender('');
+        setAddState('');
+        setAddZipCode('');
+        setAddMaritalStatus('');
+        setAddOccupation('');
+        setAddAddress('');
+        setAddGovernmentId('');
+        setAddCreatedAt('');
         fetchData();
       } else {
         setResponseMsg(data.error?.message || data.error || 'Failed to register member.');
@@ -1065,13 +1158,16 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
             >
               <span className="flex items-center gap-2">
                 <PlusCircle className="w-5 h-5 text-[#003399]" />
-                Register & Add New Portal Member
+                Recover Lost Customer Account
               </span>
               <span className="text-xs text-[#003399]">{showAddUser ? 'Collapse Form' : 'Expand Form'}</span>
             </button>
 
             {showAddUser && (
               <form onSubmit={handleRegisterUser} className="p-6 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="sm:col-span-2 lg:col-span-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-900">
+                  Reconstruct verified customer records here. The opening balance remains zero until historical ledger entries are imported. On first sign-in, the customer creates a private login code, confirms the emailed six-digit code, and changes this temporary password.
+                </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">First Name</label>
                   <input
@@ -1124,10 +1220,11 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                     onChange={e => setAddPhone(e.target.value)}
                     placeholder="Phone"
                     className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none"
+                    required
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Password</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Temporary Password</label>
                   <input
                     type="password"
                     value={addPassword}
@@ -1173,12 +1270,67 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                     required
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Original Account Number</label>
+                  <input type="text" inputMode="numeric" pattern="[0-9]{10}" maxLength={10} value={addAccountNumber} onChange={e => setAddAccountNumber(e.target.value.replace(/\D/g, ''))} placeholder="Optional — 10 digits" className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Account Type</label>
+                  <select value={addAccountType} onChange={e => setAddAccountType(e.target.value)} className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none" required>
+                    <option value="CHECKING">Checking</option>
+                    <option value="SAVINGS">Savings</option>
+                    <option value="FIXED_DEPOSIT">Fixed Deposit</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Original Account Opened</label>
+                  <input type="datetime-local" value={addCreatedAt} onChange={e => setAddCreatedAt(e.target.value)} className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none text-slate-800" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Gender</label>
+                  <select value={addGender} onChange={e => setAddGender(e.target.value)} className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none">
+                    <option value="">Select</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="MALE">Male</option>
+                    <option value="OTHER">Other / Prefer not to say</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">State / Province</label>
+                  <input type="text" value={addState} onChange={e => setAddState(e.target.value)} placeholder="State or province" className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none" required />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">ZIP / Postal Code</label>
+                  <input type="text" value={addZipCode} onChange={e => setAddZipCode(e.target.value)} placeholder="ZIP or postal code" className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none" required />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Marital Status</label>
+                  <select value={addMaritalStatus} onChange={e => setAddMaritalStatus(e.target.value)} className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none">
+                    <option value="">Select</option>
+                    <option value="SINGLE">Single</option>
+                    <option value="MARRIED">Married</option>
+                    <option value="DIVORCED">Divorced</option>
+                    <option value="WIDOWED">Widowed</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Occupation</label>
+                  <input type="text" value={addOccupation} onChange={e => setAddOccupation(e.target.value)} placeholder="Occupation" className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Government ID / SSN</label>
+                  <input type="text" value={addGovernmentId} onChange={e => setAddGovernmentId(e.target.value)} placeholder="Optional identity reference" autoComplete="off" className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none" />
+                </div>
+                <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Residential Address</label>
+                  <textarea value={addAddress} onChange={e => setAddAddress(e.target.value)} placeholder="Full residential address" className="w-full min-h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-semibold focus:outline-none resize-y" required />
+                </div>
                 <div className="sm:col-span-2 lg:col-span-3 flex justify-end mt-2">
                   <button
                     type="submit"
                     className="h-11 px-6 bg-[#003399] hover:bg-blue-800 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-all active:scale-[0.98]"
                   >
-                    Register Member
+                    Recover Customer Account
                   </button>
                 </div>
               </form>
@@ -1766,6 +1918,68 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
 
       {activeSubTab === 'create-txn' && (
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(320px,420px)_1fr] gap-6 items-start">
+          <div className="xl:col-span-2 bg-white rounded-[2rem] p-6 shadow-sm border border-amber-100">
+            <div className="mb-5">
+              <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-amber-600" /> Recover Historical Transfer
+              </h3>
+              <p className="mt-2 text-xs font-semibold text-slate-500">
+                Use this for a customer’s outgoing transfer—not the ordinary credit/debit form. A pending transfer immediately reserves its amount; approval keeps that deduction, while decline or rejection returns it.
+              </p>
+            </div>
+            <form onSubmit={handleRecoverTransfer} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Customer</label>
+                <select value={recoveryTransferUserId} onChange={e => setRecoveryTransferUserId(e.target.value)} className="field-control" required>
+                  <option value="">Choose customer</option>
+                  {users.map(user => <option key={user.id} value={user.id}>{user.first_name} {user.last_name} (#{user.account_number})</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Transfer Type</label>
+                <select value={recoveryTransferType} onChange={e => setRecoveryTransferType(e.target.value as 'INTERNAL' | 'EXTERNAL')} className="field-control">
+                  <option value="EXTERNAL">External bank transfer</option>
+                  <option value="INTERNAL">Blue Crest internal transfer</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Current Status</label>
+                <select value={recoveryTransferStatus} onChange={e => setRecoveryTransferStatus(e.target.value as 'PENDING' | 'COMPLETED')} className="field-control">
+                  <option value="PENDING">Pending — reserve funds</option>
+                  <option value="COMPLETED">Completed — final debit</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Amount</label>
+                <input type="number" min="0.01" step="0.01" value={recoveryTransferAmount} onChange={e => setRecoveryTransferAmount(e.target.value)} className="field-control" required />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Original Date & Time</label>
+                <input type="datetime-local" value={recoveryTransferDate} onChange={e => setRecoveryTransferDate(e.target.value)} className="field-control" required />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Recipient Name</label>
+                <input type="text" value={recoveryRecipientName} onChange={e => setRecoveryRecipientName(e.target.value)} disabled={recoveryTransferType === 'INTERNAL'} className="field-control disabled:bg-slate-100" required={recoveryTransferType === 'EXTERNAL'} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Recipient Bank</label>
+                <input type="text" value={recoveryRecipientBank} onChange={e => setRecoveryRecipientBank(e.target.value)} disabled={recoveryTransferType === 'INTERNAL'} className="field-control disabled:bg-slate-100" required={recoveryTransferType === 'EXTERNAL'} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Recipient Account Number</label>
+                <input type="text" value={recoveryRecipientAccount} onChange={e => setRecoveryRecipientAccount(e.target.value)} className="field-control" required />
+              </div>
+              <div className="space-y-1.5 md:col-span-2 xl:col-span-3">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Description</label>
+                <input type="text" value={recoveryTransferDescription} onChange={e => setRecoveryTransferDescription(e.target.value)} placeholder="Bank Transfer" className="field-control" />
+              </div>
+              <div className="flex items-end">
+                <button type="submit" className="w-full h-12 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2">
+                  <RotateCcw className="w-4 h-4" /> Recover Transfer
+                </button>
+              </div>
+            </form>
+          </div>
           <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-50">
             <h3 className="font-extrabold text-slate-800 text-lg mb-6 flex items-center gap-2">
               <PlusCircle className="w-5 h-5 text-[#003399]" />
@@ -1817,9 +2031,9 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Transaction Date</label>
-                <input
-                  type="date"
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Original Transaction Date & Time</label>
+                  <input
+                    type="datetime-local"
                   value={txnDate}
                   onChange={(e) => setTxnDate(e.target.value)}
                   className="w-full h-12 bg-slate-50 border border-slate-100 rounded-xl px-4 text-sm font-semibold focus:outline-none text-slate-800"
@@ -1896,7 +2110,7 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                 <textarea
                   value={batchJsonInput}
                   onChange={(e) => setBatchJsonInput(e.target.value)}
-                  placeholder='[{"user_id":55,"type":"CREDIT","amount":5000,"transaction_date":"2024-05-15","description":"Account Deposit"}]'
+                  placeholder='[{"email":"customer@example.com","type":"CREDIT","amount":5000,"transaction_date":"2024-05-15T09:30","description":"Account Deposit"}]'
                   className="w-full min-h-28 resize-y rounded-xl border border-slate-200 bg-white p-3 font-mono text-xs text-slate-700 focus:outline-none"
                 />
               </div>
@@ -1950,7 +2164,7 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                       />
 
                       <input
-                        type="date"
+                        type="datetime-local"
                         value={row.transaction_date}
                         onChange={(e) => handleUpdateBatchTransaction(row.id, 'transaction_date', e.target.value)}
                         className="h-12 bg-slate-50 border border-slate-100 rounded-xl px-3 text-xs font-semibold focus:outline-none text-slate-800"

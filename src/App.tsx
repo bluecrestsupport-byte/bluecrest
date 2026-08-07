@@ -301,11 +301,11 @@ useEffect(() => {
                 ? String(t.created_at).split('T')[0].split(' ')[0]
                 : new Date().toISOString().split('T')[0],
 
-              time: t.created_at
+              time: (t.transaction_date || t.created_at)
                 ? (
-                  t.created_at.includes('T')
-                    ? t.created_at.split('T')[1]?.substring(0, 5)
-                    : t.created_at.split(' ')[1]?.substring(0, 5)
+                  String(t.transaction_date || t.created_at).includes('T')
+                    ? String(t.transaction_date || t.created_at).split('T')[1]?.substring(0, 5)
+                    : String(t.transaction_date || t.created_at).split(' ')[1]?.substring(0, 5)
                 ) || '00:00'
                 : '00:00',
 

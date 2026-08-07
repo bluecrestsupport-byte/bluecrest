@@ -97,7 +97,7 @@ const server = http.createServer((req, res) => {
         }
 
         // HEALTH ROUTE
-        if (req.url === '/health') {
+        if (req.url === '/health' || req.url === '/api/v1/health') {
 
             return successResponse(
                 res,
@@ -105,6 +105,8 @@ const server = http.createServer((req, res) => {
                     api_version: 2,
                     database_provider: db.PROVIDER,
                     database_location: db.DATABASE_LOCATION,
+                    database_persistent: db.IS_PERSISTENT,
+                    database_storage_mode: db.STORAGE_MODE,
                     capabilities: [
                         'auth',
                         'loans',
@@ -262,6 +264,7 @@ const server = http.createServer((req, res) => {
     server.listen(PORT, () => {
         console.log(`Database provider: ${db.PROVIDER}`);
         console.log(`Database location: ${db.DATABASE_LOCATION}`);
+        console.log(`Database persistent: ${db.IS_PERSISTENT} (${db.STORAGE_MODE})`);
         console.log(`Server running on port ${PORT}`);
     });
 })();

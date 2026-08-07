@@ -28,7 +28,7 @@ async function generateUniqueAccountNumber() {
     throw new Error('Unable to generate a unique account number');
 }
 
-async function registerUser(userData) {
+async function registerUser(userData, options = {}) {
 
     const normalizedEmail = String(userData.email || '').trim().toLowerCase();
 
@@ -50,7 +50,16 @@ async function registerUser(userData) {
             10
         );
 
-    const accountNumber = await generateUniqueAccountNumber();
+    const requestedAccountNumber = options.allowCustomAccountNumber
+        ? String(userData.account_number || '').trim()
+        : '';
+    if (requestedAccountNumber && !/^\d{10}$/.test(requestedAccountNumber)) {
+        throw new Error('Account number must contain exactly 10 digits');
+    }
+    if (requestedAccountNumber && await userRepository.findUserByAccountNumber(requestedAccountNumber)) {
+        throw new Error('Account number already exists');
+    }
+    const accountNumber = requestedAccountNumber || await generateUniqueAccountNumber();
 
     const user =
         await userRepository
@@ -154,6 +163,41 @@ async function registerUser(userData) {
     delete user.login_code_hash;
 
     return user;
+}
+
+async function registerRecoveredUser(userData, adminId) {
+    const db = require('../database/db');
+
+    return db.withTransaction(async () => {
+        const user = await registerUser(userData, { allowCustomAccountNumber: true });
+        const originalCreatedAt = String(userData.created_at || '').trim();
+        const forcePasswordChange = userData.force_password_change === false ? 0 : 1;
+
+        if (originalCreatedAt) {
+            const parsed = new Date(originalCreatedAt);
+            if (Number.isNaN(parsed.getTime())) {
+                throw new Error('Original account opening date is invalid');
+            }
+            await db.query(`UPDATE users SET created_at = ? WHERE id = ?`, [originalCreatedAt, user.id]);
+            await db.query(`UPDATE accounts SET created_at = ? WHERE account_number = ?`, [originalCreatedAt, user.account_number]);
+        }
+
+        await db.query(
+            `UPDATE users
+             SET status = 'ACTIVE', email_verified = 0, force_password_change = ?
+             WHERE id = ?`,
+            [forcePasswordChange, user.id]
+        );
+
+        const recovered = await userRepository.findUserById(user.id);
+        recovered.transfer_pin_set = false;
+        recovered.requires_email_confirmation = true;
+        recovered.recovered_by = adminId || null;
+        delete recovered.password;
+        delete recovered.login_code_hash;
+        delete recovered.transfer_pin;
+        return recovered;
+    });
 }
 
 async function fetchUsers() {
@@ -446,6 +490,7 @@ async function lookupUserByAccountNumber(accountNumber) {
 
 module.exports = {
     registerUser,
+    registerRecoveredUser,
     fetchUsers,
     fetchUserKyc,
     changeUserBalance,

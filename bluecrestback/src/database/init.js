@@ -455,6 +455,8 @@ CREATE TABLE IF NOT EXISTS transfers (
 
         origin_account_number TEXT,
 
+        balance_applied INTEGER DEFAULT 0,
+
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
 `);
@@ -684,6 +686,21 @@ CREATE TABLE IF NOT EXISTS cards (
         }
     }
 
+    try {
+        await db.query(`ALTER TABLE transactions ADD COLUMN balance_applied INTEGER DEFAULT 0`);
+    } catch (_error) {
+        // Compatibility with databases where the marker already exists.
+    }
+
+    // Historical completed rows already affected balances before this marker
+    // existed. Mark them without changing any customer balance.
+    await db.query(`
+        UPDATE transactions
+        SET balance_applied = 1
+        WHERE UPPER(status) = 'COMPLETED'
+          AND COALESCE(balance_applied, 0) = 0
+    `);
+
     // Give every existing user a primary account without changing any account
     // number or balance. This migration is idempotent on SQLite and Postgres.
     const existingUsers = await db.query(`
@@ -810,6 +827,18 @@ CREATE TABLE IF NOT EXISTS cards (
             'ACTIVE'
         ]
     );
+
+    if (db.USE_POSTGRES) {
+        // The bootstrap admin uses an explicit id. Advance the identity sequence
+        // so the first real customer does not collide with id 1.
+        await db.query(`
+            SELECT setval(
+                pg_get_serial_sequence('users', 'id'),
+                GREATEST(COALESCE((SELECT MAX(id) FROM users), 1), 1),
+                true
+            )
+        `);
+    }
 
 
 

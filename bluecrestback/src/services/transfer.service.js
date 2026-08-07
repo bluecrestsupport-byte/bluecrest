@@ -162,6 +162,7 @@ async function createTransfer(
                 amount,
                 currency: user.preferred_currency,
                 status: 'PENDING',
+                reserve_balance: true,
                 reference: debitReference(transfer.id),
                 description: `${recipient.first_name} ${recipient.last_name} · ${recipient.account_number}`
             });
@@ -218,6 +219,7 @@ async function createTransfer(
                 amount,
                 currency: user.preferred_currency,
                 status: 'PENDING',
+                reserve_balance: true,
                 reference: debitReference(transfer.id),
                 description: `${data.recipient_name} · ${data.recipient_account_number}`
             });
@@ -235,6 +237,75 @@ async function createTransfer(
     throw new Error(
         'Invalid transfer type'
     );
+}
+
+async function recoverTransfer(data, actorId) {
+    const sender = await userRepository.findUserById(data.sender_id);
+    if (!sender) throw new Error('Sender account not found');
+
+    const amount = Number(data.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Transfer amount must be greater than zero');
+
+    const transferType = String(data.transfer_type || 'EXTERNAL').toUpperCase();
+    if (!['INTERNAL', 'EXTERNAL'].includes(transferType)) throw new Error('Invalid transfer type');
+
+    const desiredStatus = String(data.status || 'PENDING').toUpperCase();
+    if (!['PENDING', 'COMPLETED'].includes(desiredStatus)) {
+        throw new Error('Recovered transfers must be pending or completed');
+    }
+
+    const originalTimestamp = String(data.transaction_date || data.created_at || '').trim();
+    if (!originalTimestamp || Number.isNaN(new Date(originalTimestamp).getTime())) {
+        throw new Error('Original transfer date and time are required');
+    }
+
+    let recipient = null;
+    if (transferType === 'INTERNAL') {
+        recipient = await userRepository.findUserByAccountNumber(String(data.recipient_account_number || '').trim());
+        if (!recipient) throw new Error('Internal recipient account not found');
+    } else {
+        if (!String(data.recipient_name || '').trim()) throw new Error('Recipient name is required');
+        if (!String(data.recipient_bank || '').trim()) throw new Error('Recipient bank is required');
+        if (!String(data.recipient_account_number || '').trim()) throw new Error('Recipient account number is required');
+    }
+
+    return db.withTransaction(async () => {
+        const transfer = await transferRepository.createTransfer({
+            sender_id: sender.id,
+            transfer_type: transferType,
+            recipient_user_id: recipient?.id || null,
+            recipient_name: recipient ? `${recipient.first_name} ${recipient.last_name}` : String(data.recipient_name).trim(),
+            recipient_bank: transferType === 'INTERNAL' ? 'Blue Crest' : String(data.recipient_bank).trim(),
+            recipient_account_number: recipient?.account_number || String(data.recipient_account_number).trim(),
+            amount,
+            currency: data.currency || sender.preferred_currency,
+            status: 'PENDING',
+            description: String(data.description || 'Recovered bank transfer').trim(),
+            approved_by: desiredStatus === 'COMPLETED' ? actorId : null
+        });
+
+        await db.query(
+            `UPDATE transfers SET created_at = ?, updated_at = ? WHERE id = ?`,
+            [originalTimestamp, originalTimestamp, transfer.id]
+        );
+
+        await ledgerService.postEntry({
+            user_id: sender.id,
+            reference: debitReference(transfer.id),
+            type: 'DEBIT',
+            category: 'transfer',
+            amount,
+            currency: transfer.currency || sender.preferred_currency,
+            status: 'PENDING',
+            reserve_balance: true,
+            transaction_date: originalTimestamp,
+            created_by: actorId,
+            description: `${transfer.recipient_name} Â· ${transfer.recipient_account_number}`
+        });
+
+        if (desiredStatus === 'COMPLETED') return completeTransfer(transfer.id);
+        return transferRepository.getTransferById(transfer.id);
+    });
 }
 
 async function fetchTransfers(user) {
@@ -324,27 +395,42 @@ async function changeTransferStatus(
     status
 ) {
     const normalizedStatus = String(status || '').toUpperCase();
-    if (!['PENDING', 'COMPLETED', 'RESTRICTED', 'REJECTED', 'DECLINED'].includes(normalizedStatus)) {
+    if (!['PENDING', 'COMPLETED', 'RESTRICTED', 'REJECTED', 'DECLINED', 'FAILED', 'REVERSED'].includes(normalizedStatus)) {
         throw new Error('Invalid transfer status');
     }
 
     const existingTransfer = await transferRepository.getTransferById(transferId);
     if (!existingTransfer) throw new Error('Transfer not found');
+    if (String(existingTransfer.status || '').toUpperCase() === normalizedStatus) return existingTransfer;
 
     if (normalizedStatus === 'COMPLETED') {
         return await completeTransfer(transferId);
-    } else if (normalizedStatus === 'RESTRICTED' || normalizedStatus === 'REJECTED' || normalizedStatus === 'DECLINED') {
-        if (existingTransfer.status !== 'COMPLETED') {
-            await ledgerService.markEntryStatus(debitReference(existingTransfer.id), 'DECLINED');
-            await ledgerService.markEntryStatus(creditReference(existingTransfer.id), 'DECLINED');
-        }
     }
 
-    const updatedTransfer = await transferRepository
-        .updateTransferStatus(
-            transferId,
-            normalizedStatus
-        );
+    const updatedTransfer = await db.withTransaction(async () => {
+        if (normalizedStatus === 'PENDING') {
+            await ledgerService.postEntry({
+                user_id: existingTransfer.sender_id,
+                reference: debitReference(existingTransfer.id),
+                type: 'DEBIT',
+                category: 'transfer',
+                amount: existingTransfer.amount,
+                currency: existingTransfer.currency,
+                status: 'PENDING',
+                reserve_balance: true,
+                description: `${existingTransfer.recipient_name} Â· ${existingTransfer.recipient_account_number}`
+            });
+        } else if (['RESTRICTED', 'REJECTED', 'DECLINED', 'FAILED', 'REVERSED'].includes(normalizedStatus)) {
+            if (existingTransfer.status === 'COMPLETED' && normalizedStatus !== 'RESTRICTED') {
+                await ledgerService.reverseEntryByReference(debitReference(existingTransfer.id));
+                await ledgerService.reverseEntryByReference(creditReference(existingTransfer.id));
+            } else if (existingTransfer.status !== 'COMPLETED') {
+                await ledgerService.markEntryStatus(debitReference(existingTransfer.id), 'DECLINED');
+                await ledgerService.markEntryStatus(creditReference(existingTransfer.id), 'DECLINED');
+            }
+        }
+        return transferRepository.updateTransferStatus(transferId, normalizedStatus);
+    });
 
     if (
         ['PENDING', 'RESTRICTED'].includes(normalizedStatus) &&
@@ -432,6 +518,7 @@ async function getTransferReceipt(
 
 module.exports = {
     createTransfer,
+    recoverTransfer,
     fetchTransfers,
     changeTransferStatus,
     completeTransfer,

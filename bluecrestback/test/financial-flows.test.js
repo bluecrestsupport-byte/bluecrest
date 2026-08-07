@@ -19,7 +19,9 @@ const loanRepository = require('../src/repositories/loan.repository');
 const transferService = require('../src/services/transfer.service');
 const transferVerificationService = require('../src/services/transfer-verification.service');
 const userService = require('../src/services/user.service');
+const authService = require('../src/services/auth.service');
 const ledgerService = require('../src/services/ledger.service');
+const transactionService = require('../src/services/transaction.service');
 const loanService = require('../src/services/loan.service');
 const withdrawalService = require('../src/services/withdrawal.service');
 const reconciliationService = require('../src/services/reconciliation.service');
@@ -150,6 +152,65 @@ test('admin savings balance persists, is returned in user lists, and does not ch
     assert.equal(Number(saved.balance), Number(before.balance));
 });
 
+test('admin recovery recreates a full active profile and requires first-login email confirmation', async () => {
+    const recovered = await userService.registerRecoveredUser({
+        first_name: 'Maria',
+        last_name: 'Teresa',
+        username: 'mariateresa-recovered',
+        email: 'maria.recovered@example.com',
+        phone: '+12025550119',
+        password: 'Temporary123!',
+        account_number: '3000000004',
+        account_type: 'CHECKING',
+        preferred_currency: 'USD',
+        date_of_birth: '1985-06-14',
+        gender: 'FEMALE',
+        country: 'United States of America',
+        state: 'New York',
+        zip_code: '10001',
+        marital_status: 'MARRIED',
+        occupation: 'Consultant',
+        address: '100 Recovery Avenue, New York, NY',
+        government_id_number: 'RECOVERY-ID-1',
+        created_at: '2021-04-05T10:30',
+        force_password_change: true
+    }, 1);
+
+    assert.equal(recovered.status, 'ACTIVE');
+    assert.equal(Number(recovered.email_verified), 0);
+    assert.equal(recovered.account_number, '3000000004');
+    assert.equal(recovered.address, '100 Recovery Avenue, New York, NY');
+    assert.equal(recovered.requires_email_confirmation, true);
+    assert.equal(Number(recovered.force_password_change), 1);
+
+    await transactionService.createBatchTransactions([
+        {
+            user_id: recovered.id,
+            reference: 'RECOVERY-MARIA-CREDIT-1',
+            type: 'CREDIT',
+            amount: 500,
+            transaction_date: '2024-05-15T09:30',
+            description: 'Account Deposit'
+        },
+        {
+            user_id: recovered.id,
+            reference: 'RECOVERY-MARIA-CREDIT-2',
+            type: 'CREDIT',
+            amount: 250,
+            transaction_date: '2024-05-16T14:45',
+            description: 'Account Deposit'
+        }
+    ], 1);
+
+    assert.equal(Number((await userRepository.findUserById(recovered.id)).balance), 750);
+    const recoveredCredit = await transactionRepository.getTransactionByReference('RECOVERY-MARIA-CREDIT-1');
+    assert.equal(recoveredCredit.transaction_date, '2024-05-15T09:30');
+
+    const login = await authService.login('maria.recovered@example.com', 'Temporary123!');
+    assert.ok(login.challenge_token);
+    assert.equal(login.requires_login_code_setup, true);
+});
+
 test('invalid or unaffordable transfer amounts create no ledger entry', async () => {
     const sender = await userRepository.findUserById(2);
     const beforeTransactions = await transactionRepository.getUserTransactions(sender.id);
@@ -201,7 +262,7 @@ test('admin reversal creates an opposite ledger entry and restores the balance',
     assert.equal(Number((await userRepository.findUserById(2)).balance), balanceBefore);
 });
 
-test('pending external transfer moves no money and completion debits exactly once', async () => {
+test('pending external transfer reserves funds and completion debits exactly once', async () => {
     const statusEmailCount = transferStatusEmails.length;
     const sender = await userRepository.findUserById(2);
     const token = await verificationToken(sender.id, 'external');
@@ -220,7 +281,7 @@ test('pending external transfer moves no money and completion debits exactly onc
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(transferStatusEmails.length, statusEmailCount + 1);
     assert.equal(transferStatusEmails.at(-1).status, 'PENDING');
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), 1000);
+    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), 750);
 
     await transferService.completeTransfer(transfer.id);
     await transferService.completeTransfer(transfer.id);
@@ -257,7 +318,7 @@ test('admin restriction of a pending transfer emails its sender once', async () 
     assert.equal(transferStatusEmails.at(-1).user.id, sender.id);
 });
 
-test('rejecting a pending transfer moves no money', async () => {
+test('rejecting a pending transfer releases reserved funds', async () => {
     const sender = await userRepository.findUserById(2);
     const startingBalance = Number(sender.balance);
     const token = await verificationToken(sender.id, 'rejection');
@@ -271,6 +332,8 @@ test('rejecting a pending transfer moves no money', async () => {
         verification_token: token
     });
 
+    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance - 20);
+
     await transferService.changeTransferStatus(transfer.id, 'REJECTED');
 
     assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance);
@@ -278,6 +341,36 @@ test('rejecting a pending transfer moves no money', async () => {
         `TXN-TRF-${transfer.id}-DEBIT`
     );
     assert.equal(entry.status, 'DECLINED');
+});
+
+test('admin recovery reconstructs a pending transfer hold and preserves its timestamp', async () => {
+    const sender = await userRepository.findUserByEmail('maria.recovered@example.com');
+    const startingBalance = Number(sender.balance);
+    const transfer = await transferService.recoverTransfer({
+        sender_id: sender.id,
+        transfer_type: 'EXTERNAL',
+        status: 'PENDING',
+        amount: 120,
+        transaction_date: '2024-05-20T16:15',
+        recipient_name: 'Historical Recipient',
+        recipient_bank: 'Historical Bank',
+        recipient_account_number: '4444444444',
+        description: 'Recovered pending transfer'
+    }, 1);
+
+    assert.equal(transfer.status, 'PENDING');
+    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance - 120);
+    const debit = await transactionRepository.getTransactionByReference(`TXN-TRF-${transfer.id}-DEBIT`);
+    assert.equal(debit.status, 'PENDING');
+    assert.equal(debit.transaction_date, '2024-05-20T16:15');
+
+    await transferService.changeTransferStatus(transfer.id, 'COMPLETED');
+    await transferService.changeTransferStatus(transfer.id, 'COMPLETED');
+    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance - 120);
+
+    await transferService.changeTransferStatus(transfer.id, 'REVERSED');
+    await transferService.changeTransferStatus(transfer.id, 'REVERSED');
+    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance);
 });
 
 test('internal transfer debits sender and credits recipient exactly once', async () => {

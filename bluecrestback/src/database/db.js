@@ -1,5 +1,4 @@
 const { AsyncLocalStorage } = require('async_hooks');
-const path = require('path');
 
 const requestedProvider = String(process.env.DB_PROVIDER || '').trim().toLowerCase();
 
@@ -20,11 +19,14 @@ if (USE_POSTGRES && !process.env.DATABASE_URL) {
 
 const postgres = USE_POSTGRES ? require('./postgres') : null;
 const sqlite = USE_POSTGRES ? null : require('./sqlite');
+const sqliteStorage = USE_POSTGRES ? null : require('./sqlite-path');
 const transactionStorage = new AsyncLocalStorage();
 const PROVIDER = USE_POSTGRES ? 'postgres' : 'sqlite';
 const DATABASE_LOCATION = USE_POSTGRES
     ? 'DATABASE_URL'
-    : path.resolve(process.cwd(), process.env.SQLITE_DB_PATH || 'local.db');
+    : sqliteStorage.databasePath;
+const IS_PERSISTENT = USE_POSTGRES || sqliteStorage.persistent;
+const STORAGE_MODE = USE_POSTGRES ? 'managed-postgres' : sqliteStorage.storageMode;
 
 function toPostgresSql(sql) {
     let index = 0;
@@ -117,5 +119,7 @@ module.exports = {
     close,
     USE_POSTGRES,
     PROVIDER,
-    DATABASE_LOCATION
+    DATABASE_LOCATION,
+    IS_PERSISTENT,
+    STORAGE_MODE
 };

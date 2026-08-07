@@ -45,9 +45,15 @@ if (SHOULD_START_INTERNAL_BACKEND) {
   });
 }
 
-const BACKEND_URL =
+const configuredBackendUrl =
   process.env.BACKEND_URL ||
   `http://127.0.0.1:${INTERNAL_BACKEND_PORT}`;
+
+// Avoid Node resolving localhost to IPv6 while the child API listens on IPv4.
+const BACKEND_URL = configuredBackendUrl.replace(
+  /^http:\/\/localhost(?=[:/]|$)/i,
+  "http://127.0.0.1"
+);
 
 console.log(`REGISTERING API PROXY -> ${BACKEND_URL}`);
 
@@ -149,8 +155,43 @@ app.get("*", (_, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(
-    `Frontend listening on port ${PORT}`
-  );
+const waitForInternalBackend = async () => {
+  if (!SHOULD_START_INTERNAL_BACKEND) return;
+
+  const timeoutMs = Number(process.env.BACKEND_STARTUP_TIMEOUT_MS || 90000);
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const ready = await new Promise<boolean>((resolve) => {
+      const healthUrl = new URL('/health', BACKEND_URL);
+      const request = http.get(healthUrl, response => {
+        response.resume();
+        resolve((response.statusCode || 500) < 500);
+      });
+      request.setTimeout(2000, () => request.destroy());
+      request.on('error', () => resolve(false));
+    });
+
+    if (ready) {
+      console.log('INTERNAL API READY');
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`Internal API did not become ready within ${timeoutMs}ms`);
+};
+
+const startFrontend = async () => {
+  await waitForInternalBackend();
+  app.listen(PORT, () => {
+    console.log(`Frontend listening on port ${PORT}`);
+  });
+};
+
+startFrontend().catch(error => {
+  console.error('Frontend startup failed:', error.message);
+  backendProcess?.kill('SIGTERM');
+  process.exit(1);
 });

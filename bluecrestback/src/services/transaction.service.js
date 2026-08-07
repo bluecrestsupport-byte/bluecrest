@@ -6,6 +6,7 @@ const userRepository =
 
 const ledgerService =
     require('./ledger.service');
+const db = require('../database/db');
 
 async function createTransaction(data) {
 
@@ -110,25 +111,25 @@ async function createBatchTransactions(
     adminId
 ) {
 
-    const results = [];
-
-    for (const transaction of transactions) {
-
-        const createdTransaction =
-            await createTransaction({
-
-                ...transaction,
-
-                created_by:
-                    adminId
-            });
-
-        results.push(
-            createdTransaction
-        );
+    if (!Array.isArray(transactions) || transactions.length === 0) {
+        throw new Error('At least one transaction is required');
+    }
+    if (transactions.length > 500) {
+        throw new Error('A batch cannot contain more than 500 transactions');
     }
 
-    return results;
+    return db.withTransaction(async () => {
+        const results = [];
+
+        for (const transaction of transactions) {
+            results.push(await createTransaction({
+                ...transaction,
+                created_by: adminId
+            }));
+        }
+
+        return results;
+    });
 }
 
 async function updateTransactionStatus(reference, status) {

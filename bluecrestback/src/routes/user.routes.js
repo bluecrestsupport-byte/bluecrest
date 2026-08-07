@@ -11,6 +11,13 @@ const userController =
 
 async function userRoutes(req, res, body) {
 
+    // ADMIN-ONLY LOST ACCOUNT RECONSTRUCTION
+    if (req.method === 'POST' && req.url === '/api/v1/admin/users/recover') {
+        const adminAuthorized = await requireAdmin(req, res);
+        if (!adminAuthorized) return true;
+        return userController.recoverUser(req, res, body);
+    }
+
     // REGISTER
     if (
         req.method === 'POST' &&

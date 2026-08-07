@@ -11,6 +11,12 @@ const {
 
 async function transferRoutes(req, res, body) {
 
+    if (req.method === 'POST' && req.url === '/api/v1/admin/transfers/recover') {
+        const adminAuthorized = await requireAdmin(req, res);
+        if (!adminAuthorized) return true;
+        return transferController.recover(req, res, body);
+    }
+
     if (
         req.method === 'POST' &&
         req.url === '/api/v1/transfers'

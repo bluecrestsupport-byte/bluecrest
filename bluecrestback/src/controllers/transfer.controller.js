@@ -63,6 +63,20 @@ async function create(req, res, body) {
     }
 }
 
+async function recover(req, res, body) {
+    try {
+        const transfer = await transferService.recoverTransfer(body, req.user.id);
+        await activityService.logActivity({
+            user_id: body.sender_id,
+            type: 'TRANSFER_RECOVERED',
+            description: `Historical transfer ${transfer.id} reconstructed as ${transfer.status} by administrator ${req.user.id}`
+        });
+        return successResponse(res, transfer, 'Historical transfer recovered successfully', 201);
+    } catch (error) {
+        return errorResponse(res, error.message, 400);
+    }
+}
+
 async function getAll(req, res) {
 
     try {
@@ -178,6 +192,7 @@ async function receipt(
 
 module.exports = {
     create,
+    recover,
     getAll,
     updateStatus,
     receipt
