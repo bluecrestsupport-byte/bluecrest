@@ -13,7 +13,7 @@ interface LoginPageProps {
   onLanguageChange: (code: LanguageCode) => void;
 }
 
-const COUNTRY_CURRENCY_LIST = [
+export const COUNTRY_CURRENCY_LIST = [
   { country: "United States of America", currency: "USD", symbol: "$" },
   { country: "United Kingdom", currency: "GBP", symbol: "£" },
   { country: "Canada", currency: "CAD", symbol: "$" },

@@ -29,26 +29,12 @@ import { cn } from '../lib/utils';
 import AdminCommunications from './AdminCommunications';
 import AdminSecurity from './AdminSecurity';
 import AdminSupportInbox from './AdminSupportInbox';
+import { COUNTRY_CURRENCY_LIST } from './LoginPage';
 
 interface AdminPanelProps {
   currentUser: any;
   formatUserCurrency?: (amount: number) => string;
 }
-
-const ADMIN_COUNTRY_CURRENCY_LIST = [
-  { country: "United States of America", currency: "USD" },
-  { country: "United Kingdom", currency: "GBP" },
-  { country: "Canada", currency: "CAD" },
-  { country: "United Arab Emirates", currency: "AED" },
-  { country: "European Union Countries", currency: "EUR" },
-  { country: "Australia", currency: "AUD" },
-  { country: "Nigeria", currency: "NGN" },
-  { country: "Singapore", currency: "SGD" },
-  { country: "South Africa", currency: "ZAR" },
-  { country: "Switzerland", currency: "CHF" },
-  { country: "India", currency: "INR" },
-  { country: "Japan", currency: "JPY" }
-];
 
 type AdminTxnType = 'CREDIT' | 'DEBIT';
 type AdminTab = 'users' | 'transfers' | 'loans' | 'cards' | 'deposits' | 'support' | 'security' | 'create-txn' | 'communications';
@@ -1241,12 +1227,12 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                     onChange={e => {
                       const selected = e.target.value;
                       setAddCountry(selected);
-                      const found = ADMIN_COUNTRY_CURRENCY_LIST.find(c => c.country === selected);
+                      const found = COUNTRY_CURRENCY_LIST.find(c => c.country === selected);
                       if (found) setAddCurrency(found.currency);
                     }}
                     className="w-full h-11 bg-slate-50 border border-slate-200 rounded-xl px-4 text-xs font-semibold focus:outline-none"
                   >
-                    {ADMIN_COUNTRY_CURRENCY_LIST.map(c => (
+                    {COUNTRY_CURRENCY_LIST.map(c => (
                       <option key={c.country} value={c.country}>{c.country}</option>
                     ))}
                   </select>
