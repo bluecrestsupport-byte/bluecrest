@@ -18,10 +18,9 @@ async function createTransaction(data) {
             performed_by,
             origin_name,
             origin_bank,
-            origin_account_number,
-            balance_applied
+            origin_account_number
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         `
         : `
@@ -40,10 +39,9 @@ async function createTransaction(data) {
             performed_by,
             origin_name,
             origin_bank,
-            origin_account_number,
-            balance_applied
+            origin_account_number
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
     const result = await db.query(
@@ -63,8 +61,7 @@ async function createTransaction(data) {
             data.performed_by || data.created_by || data.user_id,
             data.origin_name || null,
             data.origin_bank || null,
-            data.origin_account_number || null,
-            data.balance_applied ? 1 : 0
+            data.origin_account_number || null
         ]
     );
 
@@ -123,17 +120,6 @@ async function updateTransactionStatus(
     return getTransactionByReference(reference);
 }
 
-async function updateTransactionState(reference, status, balanceApplied) {
-    await db.query(
-        `UPDATE transactions
-         SET status = ?, balance_applied = ?
-         WHERE reference = ?`,
-        [status, balanceApplied ? 1 : 0, reference]
-    );
-
-    return getTransactionByReference(reference);
-}
-
 async function getTransactionByReference(reference) {
     const transactions = await db.query(
         `
@@ -152,6 +138,5 @@ module.exports = {
     getTransactions,
     getUserTransactions,
     updateTransactionStatus,
-    updateTransactionState,
     getTransactionByReference
 };

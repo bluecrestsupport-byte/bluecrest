@@ -201,7 +201,7 @@ test('admin reversal creates an opposite ledger entry and restores the balance',
     assert.equal(Number((await userRepository.findUserById(2)).balance), balanceBefore);
 });
 
-test('pending external transfer reserves funds and completion does not debit twice', async () => {
+test('pending external transfer moves no money and completion debits exactly once', async () => {
     const statusEmailCount = transferStatusEmails.length;
     const sender = await userRepository.findUserById(2);
     const token = await verificationToken(sender.id, 'external');
@@ -220,19 +220,7 @@ test('pending external transfer reserves funds and completion does not debit twi
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(transferStatusEmails.length, statusEmailCount + 1);
     assert.equal(transferStatusEmails.at(-1).status, 'PENDING');
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), 750);
-
-    await ledgerService.postEntry({
-        user_id: sender.id,
-        reference: `TXN-TRF-${transfer.id}-DEBIT`,
-        type: 'DEBIT',
-        category: 'transfer',
-        amount: 250,
-        currency: 'USD',
-        status: 'PENDING',
-        reserve_balance: true
-    });
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), 750);
+    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), 1000);
 
     await transferService.completeTransfer(transfer.id);
     await transferService.completeTransfer(transfer.id);
@@ -269,7 +257,7 @@ test('admin restriction of a pending transfer emails its sender once', async () 
     assert.equal(transferStatusEmails.at(-1).user.id, sender.id);
 });
 
-test('rejecting a pending transfer releases its reserved funds', async () => {
+test('rejecting a pending transfer moves no money', async () => {
     const sender = await userRepository.findUserById(2);
     const startingBalance = Number(sender.balance);
     const token = await verificationToken(sender.id, 'rejection');
@@ -283,8 +271,6 @@ test('rejecting a pending transfer releases its reserved funds', async () => {
         verification_token: token
     });
 
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance - 20);
-
     await transferService.changeTransferStatus(transfer.id, 'REJECTED');
 
     assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance);
@@ -292,65 +278,6 @@ test('rejecting a pending transfer releases its reserved funds', async () => {
         `TXN-TRF-${transfer.id}-DEBIT`
     );
     assert.equal(entry.status, 'DECLINED');
-});
-
-test('database startup reserves legacy pending transfers once', async () => {
-    const sender = await userRepository.findUserById(2);
-    const startingBalance = Number(sender.balance);
-    const transfer = await transferRepository.createTransfer({
-        sender_id: sender.id,
-        transfer_type: 'EXTERNAL',
-        recipient_name: 'Legacy Pending Recipient',
-        recipient_bank: 'Example Bank',
-        recipient_account_number: '5555555555',
-        amount: 12,
-        currency: 'USD',
-        status: 'PENDING'
-    });
-    await transactionRepository.createTransaction({
-        user_id: sender.id,
-        reference: `TXN-TRF-${transfer.id}-DEBIT`,
-        type: 'DEBIT',
-        category: 'transfer',
-        amount: 12,
-        currency: 'USD',
-        status: 'PENDING',
-        description: 'Legacy pending transfer'
-    });
-
-    await initializeDatabase();
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance - 12);
-
-    await initializeDatabase();
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance - 12);
-
-    await transferService.changeTransferStatus(transfer.id, 'REJECTED');
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance);
-});
-
-test('reversing a completed transfer restores its debit exactly once', async () => {
-    const sender = await userRepository.findUserById(2);
-    const startingBalance = Number(sender.balance);
-    const token = await verificationToken(sender.id, 'completed-reversal');
-    const transfer = await transferService.createTransfer(sender, {
-        transfer_type: 'EXTERNAL',
-        recipient_name: 'Reversal Recipient',
-        recipient_bank: 'Example Bank',
-        recipient_account_number: '6666666666',
-        amount: 15,
-        pin: '1234',
-        verification_token: token
-    });
-
-    await transferService.changeTransferStatus(transfer.id, 'COMPLETED');
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance - 15);
-
-    await transferService.changeTransferStatus(transfer.id, 'REVERSED');
-    await transferService.changeTransferStatus(transfer.id, 'REVERSED');
-
-    assert.equal(Number((await userRepository.findUserById(sender.id)).balance), startingBalance);
-    const original = await transactionRepository.getTransactionByReference(`TXN-TRF-${transfer.id}-DEBIT`);
-    assert.equal(original.status, 'REVERSED');
 });
 
 test('internal transfer debits sender and credits recipient exactly once', async () => {

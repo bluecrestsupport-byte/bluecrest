@@ -455,8 +455,6 @@ CREATE TABLE IF NOT EXISTS transfers (
 
         origin_account_number TEXT,
 
-        balance_applied INTEGER DEFAULT 0,
-
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
 `);
@@ -686,21 +684,6 @@ CREATE TABLE IF NOT EXISTS cards (
         }
     }
 
-    try {
-        await db.query(`ALTER TABLE transactions ADD COLUMN balance_applied INTEGER DEFAULT 0`);
-    } catch (_error) {
-        // Compatibility with databases where the balance marker already exists.
-    }
-
-    // Completed historical entries already affected users.balance before this
-    // marker existed. Mark them without moving money again.
-    await db.query(`
-        UPDATE transactions
-        SET balance_applied = 1
-        WHERE UPPER(status) = 'COMPLETED'
-          AND COALESCE(balance_applied, 0) = 0
-    `);
-
     // Give every existing user a primary account without changing any account
     // number or balance. This migration is idempotent on SQLite and Postgres.
     const existingUsers = await db.query(`
@@ -746,48 +729,6 @@ CREATE TABLE IF NOT EXISTS cards (
         performed_by = COALESCE(performed_by, created_by, user_id)
         WHERE account_id IS NULL
     `);
-
-    // Older pending transfers were recorded but did not reserve their funds.
-    // Claim and apply each hold once so deployment repairs existing accounts.
-    const unreservedTransfers = await db.query(`
-        SELECT t.id, t.user_id, t.amount
-        FROM transactions t
-        JOIN transfers tr ON t.reference = ('TXN-TRF-' || tr.id || '-DEBIT')
-        WHERE UPPER(t.status) = 'PENDING'
-          AND UPPER(tr.status) IN ('PENDING', 'RESTRICTED')
-          AND UPPER(t.type) = 'DEBIT'
-          AND COALESCE(t.balance_applied, 0) = 0
-        ORDER BY t.id ASC
-    `);
-
-    for (const entry of unreservedTransfers) {
-        await db.withTransaction(async () => {
-            const user = (await db.query(`SELECT balance FROM users WHERE id = ?`, [entry.user_id]))[0];
-            if (!user || Number(user.balance) < Number(entry.amount)) {
-                console.warn(`Could not reserve existing pending transfer transaction ${entry.id}: insufficient balance`);
-                return;
-            }
-
-            const claimSql = db.USE_POSTGRES
-                ? `UPDATE transactions SET balance_applied = 1 WHERE id = ? AND COALESCE(balance_applied, 0) = 0 RETURNING id`
-                : `UPDATE transactions SET balance_applied = 1 WHERE id = ? AND COALESCE(balance_applied, 0) = 0`;
-            const claimed = await db.query(claimSql, [entry.id]);
-            const didClaim = db.USE_POSTGRES ? claimed.length === 1 : Number(claimed.changes || 0) === 1;
-            if (!didClaim) return;
-
-            await db.query(`UPDATE users SET balance = balance - ? WHERE id = ?`, [entry.amount, entry.user_id]);
-            await db.query(`
-                UPDATE accounts
-                SET balance = (SELECT balance FROM users WHERE id = ?), updated_at = CURRENT_TIMESTAMP
-                WHERE id IN (
-                    SELECT ao.account_id FROM account_owners ao
-                    JOIN accounts a ON a.id = ao.account_id
-                    WHERE ao.user_id = ? AND ao.role = 'PRIMARY_OWNER'
-                      AND ao.status = 'ACCEPTED' AND a.account_kind = 'PRIMARY'
-                )
-            `, [entry.user_id, entry.user_id]);
-        });
-    }
 
     const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at)`,

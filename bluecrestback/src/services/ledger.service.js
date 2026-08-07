@@ -112,22 +112,7 @@ async function applyBalanceMovement(entry) {
         throw new Error('Insufficient available balance');
     }
 
-    const updatedUser = await userRepository.incrementBalance(entry.user_id, delta);
-
-    // Keep the compatibility primary-account mirror aligned with users.balance.
-    await db.query(`
-        UPDATE accounts
-        SET balance = (SELECT balance FROM users WHERE id = ?),
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id IN (
-            SELECT ao.account_id FROM account_owners ao
-            JOIN accounts a ON a.id = ao.account_id
-            WHERE ao.user_id = ? AND ao.role = 'PRIMARY_OWNER'
-              AND ao.status = 'ACCEPTED' AND a.account_kind = 'PRIMARY'
-        )
-    `, [entry.user_id, entry.user_id]);
-
-    return updatedUser;
+    return await userRepository.incrementBalance(entry.user_id, delta);
 }
 
 async function postEntry(data) {
@@ -135,7 +120,6 @@ async function postEntry(data) {
         const amount = normalizeAmount(data.amount);
         const reference = data.reference || generateReference();
         const status = data.status || 'COMPLETED';
-        const reservesBalance = status === 'PENDING' && data.reserve_balance === true;
 
         if (data.type !== 'CREDIT' && data.type !== 'DEBIT') {
             throw new Error('Invalid transaction type');
@@ -144,9 +128,7 @@ async function postEntry(data) {
         const existing = await transactionRepository.getTransactionByReference(reference);
 
         if (existing) {
-            const balanceApplied = Number(existing.balance_applied || 0) === 1;
-
-            if (existing.status === 'COMPLETED' && balanceApplied) {
+            if (existing.status === 'COMPLETED') {
                 return existing;
             }
 
@@ -155,30 +137,14 @@ async function postEntry(data) {
                     throw new Error('Ledger reference conflict');
                 }
 
-                if (!balanceApplied) {
-                    await applyBalanceMovement({
-                        ...existing,
-                        amount
-                    });
-                }
-
-                return await transactionRepository.updateTransactionState(
-                    reference,
-                    'COMPLETED',
-                    true
-                );
-            }
-
-            if (reservesBalance && !balanceApplied) {
                 await applyBalanceMovement({
                     ...existing,
                     amount
                 });
 
-                return await transactionRepository.updateTransactionState(
+                return await transactionRepository.updateTransactionStatus(
                     reference,
-                    'PENDING',
-                    true
+                    'COMPLETED'
                 );
             }
 
@@ -192,9 +158,7 @@ async function postEntry(data) {
             return existing;
         }
 
-        const balanceApplied = status === 'COMPLETED' || reservesBalance;
-
-        if (balanceApplied) {
+        if (status === 'COMPLETED') {
             await applyBalanceMovement({
                 user_id: data.user_id,
                 type: data.type,
@@ -227,7 +191,6 @@ async function postEntry(data) {
             ,origin_name: data.origin_name || null
             ,origin_bank: data.origin_bank || null
             ,origin_account_number: data.origin_account_number || null
-            ,balance_applied: balanceApplied
         });
 
         if (status === 'COMPLETED') {
@@ -275,26 +238,16 @@ async function markEntryStatus(reference, status) {
             return null;
         }
 
-        const balanceApplied = Number(existing.balance_applied || 0) === 1;
-        const existingStatus = String(existing.status || '').toUpperCase();
-
-        if (existingStatus === normalizedStatus || existingStatus === 'REVERSED') {
+        if (String(existing.status || '').toUpperCase() === normalizedStatus) {
             return existing;
         }
 
-        if (normalizedStatus === 'COMPLETED' && !balanceApplied) {
-            await applyBalanceMovement(existing);
-            return transactionRepository.updateTransactionState(reference, normalizedStatus, true);
-        }
-
-        if (balanceApplied && ['FAILED', 'DECLINED', 'REJECTED'].includes(normalizedStatus)) {
+        if (String(existing.status || '').toUpperCase() === 'COMPLETED' && ['FAILED', 'REVERSED', 'DECLINED', 'REJECTED'].includes(normalizedStatus)) {
             await applyBalanceMovement({
                 ...existing,
                 type: existing.type === 'CREDIT' ? 'DEBIT' : 'CREDIT',
                 amount: Number(existing.amount)
             });
-
-            return transactionRepository.updateTransactionState(reference, normalizedStatus, false);
         }
 
         return await transactionRepository.updateTransactionStatus(reference, normalizedStatus);
@@ -342,13 +295,6 @@ async function reverseEntry(originalEntry, actorId) {
         },
         reversal
     };
-}
-
-async function reverseEntryByReference(reference, actorId) {
-    const originalEntry = await transactionRepository.getTransactionByReference(reference);
-    if (!originalEntry) return null;
-    if (String(originalEntry.status || '').toUpperCase() === 'REVERSED') return originalEntry;
-    return reverseEntry(originalEntry, actorId);
 }
 
 async function adjustBalanceTo(userId, targetBalance, metadata = {}) {
@@ -401,7 +347,6 @@ module.exports = {
     postEntry,
     markEntryStatus,
     reverseEntry,
-    reverseEntryByReference,
     adjustBalanceTo,
     generateReference,
     buildReversalTransactionData

@@ -162,7 +162,6 @@ async function createTransfer(
                 amount,
                 currency: user.preferred_currency,
                 status: 'PENDING',
-                reserve_balance: true,
                 reference: debitReference(transfer.id),
                 description: `${recipient.first_name} ${recipient.last_name} · ${recipient.account_number}`
             });
@@ -219,7 +218,6 @@ async function createTransfer(
                 amount,
                 currency: user.preferred_currency,
                 status: 'PENDING',
-                reserve_balance: true,
                 reference: debitReference(transfer.id),
                 description: `${data.recipient_name} · ${data.recipient_account_number}`
             });
@@ -326,46 +324,27 @@ async function changeTransferStatus(
     status
 ) {
     const normalizedStatus = String(status || '').toUpperCase();
-    if (!['PENDING', 'COMPLETED', 'RESTRICTED', 'REJECTED', 'DECLINED', 'FAILED', 'REVERSED'].includes(normalizedStatus)) {
+    if (!['PENDING', 'COMPLETED', 'RESTRICTED', 'REJECTED', 'DECLINED'].includes(normalizedStatus)) {
         throw new Error('Invalid transfer status');
     }
 
     const existingTransfer = await transferRepository.getTransferById(transferId);
     if (!existingTransfer) throw new Error('Transfer not found');
 
-    if (String(existingTransfer.status || '').toUpperCase() === normalizedStatus) {
-        return existingTransfer;
-    }
-
     if (normalizedStatus === 'COMPLETED') {
         return await completeTransfer(transferId);
+    } else if (normalizedStatus === 'RESTRICTED' || normalizedStatus === 'REJECTED' || normalizedStatus === 'DECLINED') {
+        if (existingTransfer.status !== 'COMPLETED') {
+            await ledgerService.markEntryStatus(debitReference(existingTransfer.id), 'DECLINED');
+            await ledgerService.markEntryStatus(creditReference(existingTransfer.id), 'DECLINED');
+        }
     }
 
-    const updatedTransfer = await db.withTransaction(async () => {
-        if (normalizedStatus === 'PENDING') {
-            await ledgerService.postEntry({
-                user_id: existingTransfer.sender_id,
-                reference: debitReference(existingTransfer.id),
-                type: 'DEBIT',
-                category: 'transfer',
-                amount: existingTransfer.amount,
-                currency: existingTransfer.currency,
-                status: 'PENDING',
-                reserve_balance: true,
-                description: `${existingTransfer.recipient_name} Â· ${existingTransfer.recipient_account_number}`
-            });
-        } else if (['RESTRICTED', 'REJECTED', 'DECLINED', 'FAILED', 'REVERSED'].includes(normalizedStatus)) {
-            if (existingTransfer.status === 'COMPLETED' && normalizedStatus !== 'RESTRICTED') {
-                await ledgerService.reverseEntryByReference(debitReference(existingTransfer.id));
-                await ledgerService.reverseEntryByReference(creditReference(existingTransfer.id));
-            } else if (existingTransfer.status !== 'COMPLETED') {
-                await ledgerService.markEntryStatus(debitReference(existingTransfer.id), 'DECLINED');
-                await ledgerService.markEntryStatus(creditReference(existingTransfer.id), 'DECLINED');
-            }
-        }
-
-        return transferRepository.updateTransferStatus(transferId, normalizedStatus);
-    });
+    const updatedTransfer = await transferRepository
+        .updateTransferStatus(
+            transferId,
+            normalizedStatus
+        );
 
     if (
         ['PENDING', 'RESTRICTED'].includes(normalizedStatus) &&
