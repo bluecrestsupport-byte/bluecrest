@@ -91,6 +91,8 @@ export function TransferSuccessModal({
   recipientName, 
   bankName, 
   accountNumber,
+  awaitingClearance = false,
+  onClearance,
   formatUserCurrency
 }: { 
   isOpen: boolean; 
@@ -99,6 +101,8 @@ export function TransferSuccessModal({
   recipientName: string; 
   bankName: string; 
   accountNumber: string; 
+  awaitingClearance?: boolean;
+  onClearance?: () => void;
   formatUserCurrency?: (amount: number) => string;
 }) {
   const displayAmount = formatUserCurrency 
@@ -137,10 +141,17 @@ export function TransferSuccessModal({
           <div className="flex justify-between items-center text-xs">
             <span className="font-bold text-slate-400 uppercase tracking-wider text-[9px]">Status</span>
             <span className="px-2.5 py-1 bg-amber-50 text-amber-600 font-bold rounded-full uppercase tracking-widest text-[9px]">
-              Pending
+              {awaitingClearance ? 'Pending · Awaiting clearance fee' : 'Pending'}
             </span>
           </div>
         </div>
+
+        {awaitingClearance && onClearance && <button
+          onClick={onClearance}
+          className="w-full bg-amber-50 text-amber-700 border border-amber-200 font-bold py-4 rounded-2xl hover:bg-amber-100 transition-all uppercase tracking-wider text-xs"
+        >
+          Clear clearance fee
+        </button>}
 
         <button 
           onClick={onClose}

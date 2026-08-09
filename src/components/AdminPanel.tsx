@@ -1644,6 +1644,9 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                           className="h-8 w-24 rounded-lg border border-amber-200 bg-amber-50 px-2 text-xs font-bold text-amber-800 outline-none focus:border-amber-400"
                         />
                         <button onClick={() => handleUpdateTransferClearanceFee(t.id, t.clearance_fee_amount)} className="h-8 rounded-lg bg-[#003399] px-3 text-[9px] font-bold uppercase tracking-wide text-white">Save</button>
+                      </div> : t.clearance_status === 'AWAITING_CONFIRMATION' ? <div className="max-w-52">
+                        <span className="inline-flex rounded-full bg-blue-50 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-[#003399]">Receipt submitted</span>
+                        <p className="mt-1 break-all font-mono text-[9px] text-slate-500" title={t.clearance_receipt}>{t.clearance_receipt}</p>
                       </div> : <span className="text-[10px] font-semibold text-slate-400">—</span>}
                     </td>
                     <td className="py-4 text-right">

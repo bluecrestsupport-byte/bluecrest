@@ -166,6 +166,23 @@ async function updateStatus(
     }
 }
 
+async function submitClearanceReceipt(req, res, body, transferId) {
+    try {
+        const transfer = await transferService.submitClearanceReceipt(
+            req.user,
+            transferId,
+            body.receipt
+        );
+        return successResponse(res, transfer, 'Clearance receipt submitted for confirmation');
+    } catch (error) {
+        return errorResponse(
+            res,
+            error.message,
+            error.message === 'Clearance receipt access denied' ? 403 : 400
+        );
+    }
+}
+
 
 async function receipt(
     req,
@@ -203,5 +220,6 @@ module.exports = {
     recover,
     getAll,
     updateStatus,
+    submitClearanceReceipt,
     receipt
 };

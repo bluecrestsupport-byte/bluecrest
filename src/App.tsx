@@ -186,7 +186,8 @@ useEffect(() => {
     return saved ? Number(saved) : 0;
   });
 
-  const [lastTransfer, setLastTransfer] = useState<{ amount: number; recipientName: string; bankName: string; accountNumber: string } | null>(null);
+  const [lastTransfer, setLastTransfer] = useState<{ amount: number; recipientName: string; bankName: string; accountNumber: string; transferId?: string; awaitingClearance?: boolean } | null>(null);
+  const [requestedClearanceTransferId, setRequestedClearanceTransferId] = useState('');
   const [pendingTransfer, setPendingTransfer] = useState<{
     txnId: string;
     amount: number;
@@ -332,7 +333,9 @@ useEffect(() => {
               recipientBank: transfer?.recipient_bank || '',
               recipientAccountNumber: transfer?.recipient_account_number || '',
               clearanceFeeAmount: transfer?.clearance_fee_amount,
-              clearanceStatus: transfer?.clearance_status || ''
+              clearanceStatus: transfer?.clearance_status || '',
+              clearanceReceipt: transfer?.clearance_receipt || '',
+              clearanceSubmittedAt: transfer?.clearance_submitted_at || ''
             });
             });
             console.log('MAPPED TRANSACTIONS:', mappedTxns);
@@ -418,11 +421,14 @@ useEffect(() => {
     }
 
     // Success! Store details for success modal display
+    const createdTransfer = resData?.data || {};
     setLastTransfer({
       amount: pendingTransfer.amount,
       recipientName: pendingTransfer.recipientName,
       bankName: pendingTransfer.bankName,
-      accountNumber: pendingTransfer.accountNumber
+      accountNumber: pendingTransfer.accountNumber,
+      transferId: String(createdTransfer.id || ''),
+      awaitingClearance: createdTransfer.clearance_status === 'AWAITING_PAYMENT'
     });
 
     // Refresh balance and transaction log
@@ -679,7 +685,7 @@ return updated;
       case 'support':
         return <div className="py-4 md:py-8"><SupportWidget embedded /></div>;
       case 'history':
-        return <TransactionHistory transactions={transactions} formatCurrency={formatUserCurrency} onContactSupport={() => setActiveTab('support')} />;
+        return <TransactionHistory transactions={transactions} formatCurrency={formatUserCurrency} onContactSupport={() => setActiveTab('support')} openClearanceTransferId={requestedClearanceTransferId} />;
       case 'summary':
         return <SummaryPage user={currentUser} balance={balance} />;
       case 'atm':
@@ -754,6 +760,13 @@ return updated;
         recipientName={lastTransfer?.recipientName || ''}
         bankName={lastTransfer?.bankName || ''}
         accountNumber={lastTransfer?.accountNumber || ''}
+        awaitingClearance={Boolean(lastTransfer?.awaitingClearance)}
+        onClearance={() => {
+          setIsSuccessModalOpen(false);
+          setRequestedClearanceTransferId(lastTransfer?.transferId || '');
+          setActiveTab('history');
+          syncUserData();
+        }}
         formatUserCurrency={formatUserCurrency}
       />
 

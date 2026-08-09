@@ -742,6 +742,14 @@ test('authorization hold creates a pending transfer with an immutable clearance 
     const adjustedTransfer = await transferService.changeClearanceFee(transfer.id, 82.5);
     assert.equal(Number(adjustedTransfer.clearance_fee_amount), 82.5);
 
+    const submittedTransfer = await transferService.submitClearanceReceipt(sender, transfer.id, 'btc-test-receipt-123456');
+    assert.equal(submittedTransfer.clearance_status, 'AWAITING_CONFIRMATION');
+    assert.equal(submittedTransfer.clearance_receipt, 'btc-test-receipt-123456');
+    await assert.rejects(
+        transferService.submitClearanceReceipt(await userRepository.findUserById(3), transfer.id, 'another-receipt'),
+        /access denied/
+    );
+
     const completed = await transferService.changeTransferStatus(transfer.id, 'COMPLETED');
     assert.equal(completed.clearance_status, 'CLEARED');
 });

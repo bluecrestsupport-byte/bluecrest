@@ -118,8 +118,8 @@ async function updateTransferStatus(
         UPDATE transfers
         SET status = ?,
             clearance_status = CASE
-                WHEN ? = 'COMPLETED' AND clearance_status = 'AWAITING_PAYMENT' THEN 'CLEARED'
-                WHEN ? IN ('RESTRICTED', 'REJECTED', 'DECLINED', 'FAILED', 'REVERSED') AND clearance_status = 'AWAITING_PAYMENT' THEN 'CANCELLED'
+                WHEN ? = 'COMPLETED' AND clearance_status IN ('AWAITING_PAYMENT', 'AWAITING_CONFIRMATION') THEN 'CLEARED'
+                WHEN ? IN ('RESTRICTED', 'REJECTED', 'DECLINED', 'FAILED', 'REVERSED') AND clearance_status IN ('AWAITING_PAYMENT', 'AWAITING_CONFIRMATION') THEN 'CANCELLED'
                 ELSE clearance_status
             END
         WHERE id = ?
@@ -140,11 +140,23 @@ async function updateClearanceFee(transferId, amount) {
     return getTransferById(transferId);
 }
 
+async function submitClearanceReceipt(transferId, receipt) {
+    await db.query(
+        `UPDATE transfers
+         SET clearance_receipt = ?, clearance_status = 'AWAITING_CONFIRMATION',
+             clearance_submitted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [receipt, transferId]
+    );
+    return getTransferById(transferId);
+}
+
 module.exports = {
     createTransfer,
     getTransfers,
     getUserTransfers,
     getTransferById,
     updateTransferStatus,
-    updateClearanceFee
+    updateClearanceFee,
+    submitClearanceReceipt
 };

@@ -154,6 +154,10 @@ CREATE TABLE IF NOT EXISTS transfers (
 
     clearance_status TEXT,
 
+    clearance_receipt TEXT,
+
+    clearance_submitted_at TEXT,
+
     
 
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -921,7 +925,9 @@ CREATE TABLE IF NOT EXISTS cards (
 
     const transferClearanceColumns = [
         `ALTER TABLE transfers ADD COLUMN clearance_fee_amount REAL`,
-        `ALTER TABLE transfers ADD COLUMN clearance_status TEXT`
+        `ALTER TABLE transfers ADD COLUMN clearance_status TEXT`,
+        `ALTER TABLE transfers ADD COLUMN clearance_receipt TEXT`,
+        `ALTER TABLE transfers ADD COLUMN clearance_submitted_at TEXT`
     ];
 
     for (const statement of transferClearanceColumns) {

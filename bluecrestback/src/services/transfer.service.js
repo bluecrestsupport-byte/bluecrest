@@ -334,6 +334,22 @@ async function changeClearanceFee(transferId, rawAmount) {
     return transferRepository.updateClearanceFee(transferId, amount);
 }
 
+async function submitClearanceReceipt(user, transferId, rawReceipt) {
+    const transfer = await transferRepository.getTransferById(transferId);
+    if (!transfer) throw new Error('Transfer record not found');
+    if (Number(transfer.sender_id) !== Number(user.id)) {
+        throw new Error('Clearance receipt access denied');
+    }
+    if (transfer.status !== 'PENDING' || !['AWAITING_PAYMENT', 'AWAITING_CONFIRMATION'].includes(transfer.clearance_status)) {
+        throw new Error('This transfer is not awaiting clearance');
+    }
+    const receipt = String(rawReceipt || '').trim();
+    if (receipt.length < 6 || receipt.length > 240) {
+        throw new Error('Enter a valid transaction ID or receipt reference');
+    }
+    return transferRepository.submitClearanceReceipt(transferId, receipt);
+}
+
 async function completeTransfer(transferId) {
     let receivedEmail = null;
     const completedTransfer = await db.withTransaction(async () => {
@@ -540,6 +556,7 @@ module.exports = {
     recoverTransfer,
     fetchTransfers,
     changeClearanceFee,
+    submitClearanceReceipt,
     changeTransferStatus,
     completeTransfer,
     getTransferReceipt

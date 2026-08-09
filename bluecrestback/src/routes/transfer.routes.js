@@ -34,6 +34,16 @@ async function transferRoutes(req, res, body) {
     }
 
     if (
+        req.method === 'POST' &&
+        /^\/api\/v1\/transfers\/\d+\/clearance-receipt$/.test(req.url)
+    ) {
+        const authenticated = await requireAuth(req, res);
+        if (!authenticated) return true;
+        const transferId = req.url.split('/')[4];
+        return transferController.submitClearanceReceipt(req, res, body, transferId);
+    }
+
+    if (
         req.method === 'GET' &&
         req.url === '/api/v1/transfers'
     ) {
