@@ -279,19 +279,27 @@ useEffect(() => {
 
     // 2. Fetch transaction history
     if (currentUser && currentUser.id) {
-      fetch(`/api/v1/transactions/user/${currentUser.id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-        .then(res => {
-          if (!res.ok) throw new Error("Database fetch error");
-          return res.json();
+      Promise.all([
+        fetch(`/api/v1/transactions/user/${currentUser.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch('/api/v1/transfers', {
+          headers: { 'Authorization': `Bearer ${token}` }
         })
-        .then(resData => {
+      ])
+        .then(async ([transactionResponse, transferResponse]) => {
+          if (!transactionResponse.ok || !transferResponse.ok) throw new Error("Database fetch error");
+          return Promise.all([transactionResponse.json(), transferResponse.json()]);
+        })
+        .then(([resData, transferPayload]) => {
           const data = resData.data;
+          const transferRows = Array.isArray(transferPayload.data) ? transferPayload.data : [];
+          const transfersById = new Map(transferRows.map((transfer: any) => [String(transfer.id), transfer]));
           if (Array.isArray(data)) {
-            const mappedTxns = data.map((t: any) => ({
+            const mappedTxns = data.map((t: any) => {
+              const transferId = String(t.reference || '').match(/^TXN-TRF-(\d+)-/)?.[1] || '';
+              const transfer = transfersById.get(transferId) as any;
+              return ({
               id: `TXN-${t.id}`,
               reference: t.reference,
               name: formatTransactionDescription(t.description),
@@ -318,8 +326,15 @@ useEffect(() => {
               originName: t.origin_name || '',
               originBank: t.origin_bank || '',
               originAccountNumber: t.origin_account_number || '',
-              currency: t.currency || currentUser.preferred_currency || 'USD'
-            }));
+              currency: t.currency || currentUser.preferred_currency || 'USD',
+              transferId,
+              recipientName: transfer?.recipient_name || '',
+              recipientBank: transfer?.recipient_bank || '',
+              recipientAccountNumber: transfer?.recipient_account_number || '',
+              clearanceFeeAmount: transfer?.clearance_fee_amount,
+              clearanceStatus: transfer?.clearance_status || ''
+            });
+            });
             console.log('MAPPED TRANSACTIONS:', mappedTxns);
             setTransactions(mappedTxns);
           }
@@ -441,7 +456,7 @@ useEffect(() => {
     onProgress?.('processing');
     await new Promise(resolve => window.setTimeout(resolve, 700));
 
-    if (transferFlow === 'RESTRICTED' || transferFlow === 'AUTHORIZATION_HOLD') {
+    if (transferFlow === 'RESTRICTED') {
       setIsTransferCodeModalOpen(false);
       setIsRestrictedModalOpen(true);
       return;
@@ -664,7 +679,7 @@ return updated;
       case 'support':
         return <div className="py-4 md:py-8"><SupportWidget embedded /></div>;
       case 'history':
-        return <TransactionHistory transactions={transactions} formatCurrency={formatUserCurrency} />;
+        return <TransactionHistory transactions={transactions} formatCurrency={formatUserCurrency} onContactSupport={() => setActiveTab('support')} />;
       case 'summary':
         return <SummaryPage user={currentUser} balance={balance} />;
       case 'atm':
@@ -725,8 +740,6 @@ return updated;
       <RestrictedModal
         isOpen={isRestrictedModalOpen}
         onClose={() => setIsRestrictedModalOpen(false)}
-        authorizationHold={(currentUser.transfer_flow || currentUser.transferFlow) === 'AUTHORIZATION_HOLD'}
-        holdMessage={currentUser.transfer_hold_message || currentUser.transferHoldMessage || ''}
       />
       <NotificationAlert count={activeTab === 'notifications' ? 0 : unreadNotificationCount} onView={handleViewNotifications} />
       {activeTab !== 'support' && <SupportWidget />}

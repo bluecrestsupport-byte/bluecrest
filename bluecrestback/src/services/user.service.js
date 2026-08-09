@@ -382,6 +382,12 @@ async function updateUser(userId, data) {
     if (transferHoldMessage !== undefined && transferHoldMessage.length > 1200) {
         throw new Error('Transfer hold message cannot exceed 1,200 characters');
     }
+    const clearanceFeeAmount = data.clearance_fee_amount === undefined
+        ? undefined
+        : Number(data.clearance_fee_amount);
+    if (clearanceFeeAmount !== undefined && (!Number.isFinite(clearanceFeeAmount) || clearanceFeeAmount < 0)) {
+        throw new Error('Clearance fee amount must be zero or greater');
+    }
     const requestedEmail = data.email !== undefined
         ? String(data.email).trim().toLowerCase()
         : existing.email;
@@ -452,6 +458,10 @@ async function updateUser(userId, data) {
 
     if (data.transfer_hold_message !== undefined) {
         await userRepository.updateTransferHoldMessage(userId, transferHoldMessage);
+    }
+
+    if (clearanceFeeAmount !== undefined) {
+        await userRepository.updateClearanceFeeAmount(userId, clearanceFeeAmount);
     }
 
     const updated = await userRepository.findUserById(userId);

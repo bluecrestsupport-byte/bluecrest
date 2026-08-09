@@ -7,8 +7,8 @@ export default function AdminSecurity({ users }: { users: any[] }) {
   const [attempts, setAttempts] = useState<any[]>([]);
   const [userId, setUserId] = useState('');
   const [customCode, setCustomCode] = useState('');
-  const [holdMessage, setHoldMessage] = useState('');
-  const [savedHoldMessages, setSavedHoldMessages] = useState<Record<string, string>>({});
+  const [clearanceFeeAmount, setClearanceFeeAmount] = useState('');
+  const [savedClearanceFees, setSavedClearanceFees] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [history, setHistory] = useState<any[]>([]);
@@ -24,8 +24,8 @@ export default function AdminSecurity({ users }: { users: any[] }) {
   useEffect(() => { load().catch(error => setMessage(error.message)); }, [load]);
   useEffect(() => {
     const selectedUser = users.find(user => String(user.id) === String(userId));
-    setHoldMessage(savedHoldMessages[userId] ?? selectedUser?.transfer_hold_message ?? '');
-  }, [userId, users, savedHoldMessages]);
+    setClearanceFeeAmount(savedClearanceFees[userId] ?? String(selectedUser?.clearance_fee_amount ?? ''));
+  }, [userId, users, savedClearanceFees]);
 
   const assign = async () => {
     setBusy(true); setMessage('');
@@ -49,17 +49,15 @@ export default function AdminSecurity({ users }: { users: any[] }) {
     } catch (error: any) { setMessage(error.message); } finally { setBusy(false); }
   };
 
-  const saveHoldMessage = async () => {
+  const saveClearanceFee = async () => {
     setBusy(true); setMessage('');
     try {
       await apiRequest(`/api/v1/users/${userId}`, {
         method: 'PUT',
-        body: JSON.stringify({ transfer_hold_message: holdMessage })
+        body: JSON.stringify({ clearance_fee_amount: Number(clearanceFeeAmount || 0) })
       });
-      setSavedHoldMessages(current => ({ ...current, [userId]: holdMessage.trim() }));
-      setMessage(holdMessage.trim()
-        ? 'The inline transfer hold message was saved for this user.'
-        : 'The custom message was cleared. The neutral default will be shown.');
+      setSavedClearanceFees(current => ({ ...current, [userId]: String(Number(clearanceFeeAmount || 0)) }));
+      setMessage('The clearance fee was saved. New held transfers will use this amount.');
     } catch (error: any) { setMessage(error.message); } finally { setBusy(false); }
   };
 
@@ -74,17 +72,19 @@ export default function AdminSecurity({ users }: { users: any[] }) {
         <p className="text-[10px] text-slate-400">The full code is sent to the selected user's notification center. Stored codes remain hashed.</p>
         <div className="border-t border-slate-100 pt-4 space-y-3">
           <div>
-            <label className="form-label">Inline transfer hold message</label>
-            <textarea
-              value={holdMessage}
-              onChange={e => setHoldMessage(e.target.value.slice(0, 1200))}
-              className="field-control min-h-32 py-3"
-              placeholder="Write the information this user should see when a transfer is on hold…"
+            <label className="form-label">Clearance fee amount</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={clearanceFeeAmount}
+              onChange={e => setClearanceFeeAmount(e.target.value)}
+              className="field-control"
+              placeholder="0.00"
             />
-            <p className="mt-1 text-right text-[10px] text-slate-400">{holdMessage.length}/1200</p>
           </div>
-          <button disabled={busy || !userId} onClick={saveHoldMessage} className="w-full py-3 rounded-xl bg-slate-900 text-white text-xs font-bold">Save inline message</button>
-          <p className="text-[10px] text-slate-400">Set the user's transfer flow to “Insurance Hold” in User Management to display this message. Clear the field to use the neutral default.</p>
+          <button disabled={busy || !userId} onClick={saveClearanceFee} className="w-full py-3 rounded-xl bg-slate-900 text-white text-xs font-bold">Save clearance fee</button>
+          <p className="text-[10px] text-slate-400">Set the user's transfer flow to “Insurance Hold” in User Management. New transfers will remain pending and display this fee in transaction history.</p>
         </div>
       </div>
       <div className="bg-white rounded-[2rem] p-6 border border-slate-100 space-y-4">

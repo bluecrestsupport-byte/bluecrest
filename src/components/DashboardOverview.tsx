@@ -46,7 +46,9 @@ export default function DashboardOverview({
   const activeUser = user || USER_DATA;
   const accountState = String(activeUser.status || 'ACTIVE').toUpperCase();
   const transferFlow = String(activeUser.transfer_flow || activeUser.transferFlow || 'ACTIVE').toUpperCase();
-  const restricted = accountState !== 'ACTIVE' || ['RESTRICTED', 'AUTHORIZATION_HOLD'].includes(transferFlow);
+  const awaitingClearance = accountState === 'ACTIVE' && transferFlow === 'AUTHORIZATION_HOLD';
+  const restricted = accountState !== 'ACTIVE' || transferFlow === 'RESTRICTED';
+  const accountStatusLabel = restricted ? 'Restricted' : awaitingClearance ? 'Clearance Required' : 'Active';
   const accountType = String(activeUser.account_type || activeUser.accountType || 'CHECKING').replaceAll('_', ' ');
   const checkingBalance = Number(balance || 0);
   const savingsBalance = Number(activeUser.savings_balance ?? activeUser.savingsBalance ?? 0);
@@ -178,7 +180,7 @@ export default function DashboardOverview({
             </div>
             <div className="hidden sm:block">
               <p className="text-[9px] md:text-[10px] text-blue-200/50 uppercase tracking-widest font-bold mb-1">Account Status</p>
-              <p className={`text-base md:text-xl font-bold ${restricted ? 'text-rose-300' : 'text-emerald-300'}`}>{restricted ? 'Restricted' : 'Active'}</p>
+              <p className={`text-base md:text-xl font-bold ${restricted ? 'text-rose-300' : awaitingClearance ? 'text-amber-300' : 'text-emerald-300'}`}>{accountStatusLabel}</p>
               <p className="mt-1 text-[8px] font-semibold uppercase tracking-wider text-blue-200/50">{accountType} account</p>
             </div>
           </div>

@@ -181,6 +181,8 @@ async function getAllUsers() {
             savings_balance,
             transfer_pin,
             transfer_flow,
+            transfer_hold_message,
+            clearance_fee_amount,
             two_factor_enabled,
             status,
             role,
@@ -515,6 +517,15 @@ async function updateTransferHoldMessage(userId, message) {
     return users[0];
 }
 
+async function updateClearanceFeeAmount(userId, amount) {
+    const parsedId = parseInt(userId, 10);
+    await db.query(
+        `UPDATE users SET clearance_fee_amount = ? WHERE id = ?`,
+        [amount, parsedId]
+    );
+    return findUserById(parsedId);
+}
+
 async function updateUserRole(
     userId,
     role
@@ -565,6 +576,7 @@ module.exports = {
     findUserByAccountNumber,
     updateTransferFlow,
     updateTransferHoldMessage,
+    updateClearanceFeeAmount,
     incrementBalance,
     submitKyc,
     updateKycStatus,

@@ -102,6 +102,7 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
 
   const [isLoading, setIsLoading] = useState(false);
   const [responseMsg, setResponseMsg] = useState('');
+  const [clearanceFeeDrafts, setClearanceFeeDrafts] = useState<Record<string, string>>({});
 
   // Custom states for forms
   const [targetUserId, setTargetUserId] = useState('');
@@ -968,6 +969,27 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
     }
   };
 
+  const handleUpdateTransferClearanceFee = async (transferId: string | number, currentAmount: number) => {
+    const amount = clearanceFeeDrafts[String(transferId)] ?? String(currentAmount ?? 0);
+    setResponseMsg('');
+    try {
+      const res = await fetch(`/api/v1/transfers/${transferId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ clearance_fee_amount: Number(amount) })
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error?.message || payload.error || 'Failed updating clearance fee.');
+      setResponseMsg('Clearance fee updated successfully.');
+      fetchData();
+    } catch (error: any) {
+      setResponseMsg(error.message || 'Connection error.');
+    }
+  };
+
   // Computations for Admin Statistics Cards
   const totalUsers = stats.total_users;
   const totalBalances = stats.total_balance;
@@ -1457,7 +1479,7 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                           >
                             <option value="PENDING">PENDING (Audit Required)</option>
                             <option value="COMPLETED">COMPLETED (Auto-Approve)</option>
-                            <option value="AUTHORIZATION_HOLD">INSURANCE HOLD (Code Needed)</option>
+                            <option value="AUTHORIZATION_HOLD">CLEARANCE FEE HOLD</option>
                             <option value="AUTHORIZATION_REQUIRED">INSURANCE REQUIRED (Code Assigned)</option>
                             <option value="RESTRICTED">RESTRICTED (Blocked)</option>
                           </select>
@@ -1580,6 +1602,7 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                   <th className="pb-3">Amount</th>
                   <th className="pb-3">Category</th>
                   <th className="pb-3">Status</th>
+                  <th className="pb-3">Clearance Fee</th>
                   <th className="pb-3 text-right">Manual Action</th>
                 </tr>
               </thead>
@@ -1609,6 +1632,19 @@ export default function AdminPanel({ currentUser, formatUserCurrency }: AdminPan
                       )}>
                         {t.status}
                       </span>
+                    </td>
+                    <td className="py-4">
+                      {t.clearance_status === 'AWAITING_PAYMENT' ? <div className="flex min-w-40 items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={clearanceFeeDrafts[String(t.id)] ?? String(t.clearance_fee_amount ?? 0)}
+                          onChange={event => setClearanceFeeDrafts(current => ({ ...current, [String(t.id)]: event.target.value }))}
+                          className="h-8 w-24 rounded-lg border border-amber-200 bg-amber-50 px-2 text-xs font-bold text-amber-800 outline-none focus:border-amber-400"
+                        />
+                        <button onClick={() => handleUpdateTransferClearanceFee(t.id, t.clearance_fee_amount)} className="h-8 rounded-lg bg-[#003399] px-3 text-[9px] font-bold uppercase tracking-wide text-white">Save</button>
+                      </div> : <span className="text-[10px] font-semibold text-slate-400">—</span>}
                     </td>
                     <td className="py-4 text-right">
                       {t.status === 'PENDING' && (

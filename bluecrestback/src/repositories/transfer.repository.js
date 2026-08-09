@@ -15,10 +15,12 @@ async function createTransfer(data) {
     status,
     description,
     approved_by,
-    verification_code_id
+    verification_code_id,
+    clearance_fee_amount,
+    clearance_status
 
 )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         `
         : `
@@ -34,10 +36,12 @@ async function createTransfer(data) {
     status,
     description,
     approved_by,
-    verification_code_id
+    verification_code_id,
+    clearance_fee_amount,
+    clearance_status
     
 )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
     const result = await db.query(
@@ -54,7 +58,9 @@ async function createTransfer(data) {
             data.status || 'PENDING',
             data.description || '',
             data.approved_by || null,
-            data.verification_code_id || null
+            data.verification_code_id || null,
+            data.clearance_fee_amount ?? null,
+            data.clearance_status || null
         ]
     );
 
@@ -110,10 +116,15 @@ async function updateTransferStatus(
     await db.query(
         `
         UPDATE transfers
-        SET status = ?
+        SET status = ?,
+            clearance_status = CASE
+                WHEN ? = 'COMPLETED' AND clearance_status = 'AWAITING_PAYMENT' THEN 'CLEARED'
+                WHEN ? IN ('RESTRICTED', 'REJECTED', 'DECLINED', 'FAILED', 'REVERSED') AND clearance_status = 'AWAITING_PAYMENT' THEN 'CANCELLED'
+                ELSE clearance_status
+            END
         WHERE id = ?
         `,
-        [status, transferId]
+        [status, status, status, transferId]
     );
 
     return await getTransferById(
@@ -121,10 +132,19 @@ async function updateTransferStatus(
     );
 }
 
+async function updateClearanceFee(transferId, amount) {
+    await db.query(
+        `UPDATE transfers SET clearance_fee_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [amount, transferId]
+    );
+    return getTransferById(transferId);
+}
+
 module.exports = {
     createTransfer,
     getTransfers,
     getUserTransfers,
     getTransferById,
-    updateTransferStatus
+    updateTransferStatus,
+    updateClearanceFee
 };

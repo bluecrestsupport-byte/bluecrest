@@ -713,3 +713,35 @@ test('admin can save and clear a custom inline transfer hold message', async () 
     const cleared = await userService.updateUser(3, { transfer_hold_message: '   ' });
     assert.equal(cleared.transfer_hold_message, null);
 });
+
+test('authorization hold creates a pending transfer with an immutable clearance fee snapshot', async () => {
+    await userService.updateUser(2, {
+        transfer_flow: 'AUTHORIZATION_HOLD',
+        clearance_fee_amount: 75
+    });
+    const sender = await userRepository.findUserById(2);
+
+    const transfer = await transferService.createTransfer(sender, {
+        transfer_type: 'EXTERNAL',
+        recipient_name: 'Clearance Recipient',
+        recipient_bank: 'Clearance Bank',
+        recipient_account_number: '5500000000',
+        amount: 20,
+        pin: '1234'
+    });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(transfer.status, 'PENDING');
+    assert.equal(transfer.clearance_status, 'AWAITING_PAYMENT');
+    assert.equal(Number(transfer.clearance_fee_amount), 75);
+
+    await userService.updateUser(2, { clearance_fee_amount: 95 });
+    const unchangedTransfer = await transferRepository.getTransferById(transfer.id);
+    assert.equal(Number(unchangedTransfer.clearance_fee_amount), 75);
+
+    const adjustedTransfer = await transferService.changeClearanceFee(transfer.id, 82.5);
+    assert.equal(Number(adjustedTransfer.clearance_fee_amount), 82.5);
+
+    const completed = await transferService.changeTransferStatus(transfer.id, 'COMPLETED');
+    assert.equal(completed.clearance_status, 'CLEARED');
+});

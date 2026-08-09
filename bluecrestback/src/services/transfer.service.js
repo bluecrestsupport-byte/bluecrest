@@ -87,12 +87,6 @@ async function createTransfer(
             'Insufficient available balance for this transfer'
         );
     }
-    if (user.transfer_flow === 'AUTHORIZATION_HOLD') {
-        throw new Error(
-            'Transfer on hold. Obtain your Cross Border Insurance Code before continuing.'
-        );
-    }
-
     const verificationSession = user.transfer_flow === 'AUTHORIZATION_REQUIRED'
         ? await transferVerificationService.consume(
             user.id,
@@ -152,7 +146,13 @@ async function createTransfer(
                         data.description,
 
                     verification_code_id:
-                        verificationSession ? verificationSession.code_id : null
+                        verificationSession ? verificationSession.code_id : null,
+                    clearance_fee_amount: user.transfer_flow === 'AUTHORIZATION_HOLD'
+                        ? Number(user.clearance_fee_amount || 0)
+                        : null,
+                    clearance_status: user.transfer_flow === 'AUTHORIZATION_HOLD'
+                        ? 'AWAITING_PAYMENT'
+                        : null
                 });
 
             await ledgerService.postEntry({
@@ -209,7 +209,13 @@ async function createTransfer(
                     status: 'PENDING',
                     description: data.description
                     ,
-                    verification_code_id: verificationSession ? verificationSession.code_id : null
+                    verification_code_id: verificationSession ? verificationSession.code_id : null,
+                    clearance_fee_amount: user.transfer_flow === 'AUTHORIZATION_HOLD'
+                        ? Number(user.clearance_fee_amount || 0)
+                        : null,
+                    clearance_status: user.transfer_flow === 'AUTHORIZATION_HOLD'
+                        ? 'AWAITING_PAYMENT'
+                        : null
                 });
 
             await ledgerService.postEntry({
@@ -313,6 +319,19 @@ async function fetchTransfers(user) {
         return await transferRepository.getUserTransfers(user.id);
     }
     return await transferRepository.getTransfers();
+}
+
+async function changeClearanceFee(transferId, rawAmount) {
+    const transfer = await transferRepository.getTransferById(transferId);
+    if (!transfer) throw new Error('Transfer record not found');
+    if (transfer.status !== 'PENDING' || transfer.clearance_status !== 'AWAITING_PAYMENT') {
+        throw new Error('Clearance fees can only be changed for transfers awaiting payment');
+    }
+    const amount = Number(rawAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+        throw new Error('Clearance fee amount must be zero or greater');
+    }
+    return transferRepository.updateClearanceFee(transferId, amount);
 }
 
 async function completeTransfer(transferId) {
@@ -520,6 +539,7 @@ module.exports = {
     createTransfer,
     recoverTransfer,
     fetchTransfers,
+    changeClearanceFee,
     changeTransferStatus,
     completeTransfer,
     getTransferReceipt

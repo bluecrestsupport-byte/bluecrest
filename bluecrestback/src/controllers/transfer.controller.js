@@ -119,6 +119,14 @@ async function updateStatus(
 
     try {
 
+        if (body.clearance_fee_amount !== undefined) {
+            const updatedTransfer = await transferService.changeClearanceFee(
+                transferId,
+                body.clearance_fee_amount
+            );
+            return successResponse(res, updatedTransfer, 'Transfer clearance fee updated');
+        }
+
         const updatedTransfer =
             await transferService
                 .changeTransferStatus(

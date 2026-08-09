@@ -68,6 +68,8 @@ async function initializeDatabase() {
 
           transfer_hold_message TEXT,
 
+          clearance_fee_amount REAL DEFAULT 0,
+
           
 
           
@@ -147,6 +149,10 @@ CREATE TABLE IF NOT EXISTS transfers (
     description TEXT,
 
     approved_by INTEGER,
+
+    clearance_fee_amount REAL,
+
+    clearance_status TEXT,
 
     
 
@@ -861,6 +867,7 @@ CREATE TABLE IF NOT EXISTS cards (
         `ALTER TABLE users ADD COLUMN password_changed_at TEXT`,
         `ALTER TABLE users ADD COLUMN login_code_hash TEXT`,
         `ALTER TABLE users ADD COLUMN transfer_hold_message TEXT`,
+        `ALTER TABLE users ADD COLUMN clearance_fee_amount REAL DEFAULT 0`,
         `ALTER TABLE login_challenges ADD COLUMN purpose TEXT DEFAULT 'LOGIN'`
     ];
 
@@ -910,6 +917,19 @@ CREATE TABLE IF NOT EXISTS cards (
         await db.query(`ALTER TABLE transfers ADD COLUMN verification_code_id INTEGER`);
     } catch (e) {
         // Compatibility with existing databases.
+    }
+
+    const transferClearanceColumns = [
+        `ALTER TABLE transfers ADD COLUMN clearance_fee_amount REAL`,
+        `ALTER TABLE transfers ADD COLUMN clearance_status TEXT`
+    ];
+
+    for (const statement of transferClearanceColumns) {
+        try {
+            await db.query(statement);
+        } catch (e) {
+            // Compatibility with databases that already have clearance fields.
+        }
     }
 
     for (const statement of notificationColumns) {
