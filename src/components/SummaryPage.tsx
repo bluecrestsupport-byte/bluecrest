@@ -19,7 +19,7 @@ export default function SummaryPage({ user, balance }: { user?: any; balance?: n
         <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
           <h3 className="text-sm font-bold text-slate-900 mb-6 uppercase tracking-widest opacity-50">Asset Distribution</h3>
           <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <PieChart>
                 <Pie
                   data={DATA}

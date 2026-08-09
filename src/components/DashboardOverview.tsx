@@ -270,7 +270,7 @@ export default function DashboardOverview({
           </div>
         </div>
         <div className="h-[250px] md:h-[300px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <AreaChart data={ACTIVITY_DATA}>
               <defs>
                 <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">

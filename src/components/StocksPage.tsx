@@ -44,7 +44,7 @@ export default function StocksPage() {
             </div>
             
             <div className="h-20 w-full mb-6">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <AreaChart data={CHART_DATA}>
                   <Area 
                     type="monotone" 

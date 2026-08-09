@@ -84,17 +84,14 @@ const server = http.createServer((req, res) => {
     });
 
     req.on('end', async () => {
-
         try {
-
-            body = body
-                ? JSON.parse(body)
-                : {};
-
-        } catch {
-
-            body = {};
-        }
+            try {
+                body = body
+                    ? JSON.parse(body)
+                    : {};
+            } catch {
+                body = {};
+            }
 
         // HEALTH ROUTE
         if (req.url === '/health' || req.url === '/api/v1/health') {
@@ -242,11 +239,29 @@ const server = http.createServer((req, res) => {
         }
 
         // 404
-        return errorResponse(
-            res,
-            'Route not found',
-            404
-        );
+            return errorResponse(
+                res,
+                'Route not found',
+                404
+            );
+        } catch (error) {
+            console.error(
+                `Unhandled API request error: ${req.method} ${req.url}`,
+                error
+            );
+
+            if (!res.headersSent) {
+                return errorResponse(
+                    res,
+                    'Internal server error',
+                    500
+                );
+            }
+
+            if (!res.writableEnded) {
+                res.end();
+            }
+        }
     });
 });
 
@@ -267,4 +282,7 @@ const server = http.createServer((req, res) => {
         console.log(`Database persistent: ${db.IS_PERSISTENT} (${db.STORAGE_MODE})`);
         console.log(`Server running on port ${PORT}`);
     });
-})();
+})().catch(error => {
+    console.error('Backend startup failed:', error);
+    process.exit(1);
+});

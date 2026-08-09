@@ -18,8 +18,26 @@ const INTERNAL_BACKEND_PORT =
   process.env.BACKEND_PORT || "4000";
 
 let backendProcess: ReturnType<typeof spawn> | null = null;
+let backendRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let backendRestartAttempt = 0;
+let shuttingDown = false;
 
-if (SHOULD_START_INTERNAL_BACKEND) {
+const scheduleInternalBackendRestart = () => {
+  if (shuttingDown || backendRestartTimer) return;
+
+  backendProcess = null;
+  const delayMs = Math.min(1000 * (2 ** backendRestartAttempt), 30000);
+  backendRestartAttempt += 1;
+  console.error(`Restarting internal API in ${delayMs}ms`);
+  backendRestartTimer = setTimeout(() => {
+    backendRestartTimer = null;
+    startInternalBackend();
+  }, delayMs);
+};
+
+const startInternalBackend = () => {
+  if (!SHOULD_START_INTERNAL_BACKEND || shuttingDown || backendProcess) return;
+
   console.log(
     `STARTING INTERNAL API ON 127.0.0.1:${INTERNAL_BACKEND_PORT}`
   );
@@ -39,11 +57,21 @@ if (SHOULD_START_INTERNAL_BACKEND) {
   );
 
   backendProcess.on("exit", (code, signal) => {
+    backendProcess = null;
     console.error(
       `Internal API exited with code ${code ?? "null"} and signal ${signal ?? "null"}`
     );
+
+    scheduleInternalBackendRestart();
   });
-}
+
+  backendProcess.on("error", error => {
+    console.error("Failed to launch internal API:", error);
+    scheduleInternalBackendRestart();
+  });
+};
+
+startInternalBackend();
 
 const configuredBackendUrl =
   process.env.BACKEND_URL ||
@@ -83,6 +111,7 @@ app.use("/api", (req, res) => {
   const proxyReq = transport.request(
     options,
     (proxyRes) => {
+      backendRestartAttempt = 0;
       res.writeHead(
         proxyRes.statusCode || 200,
         proxyRes.headers
@@ -115,9 +144,13 @@ app.use("/api", (req, res) => {
 
     console.error("=================================");
 
-    res.status(502).json({
-      error: "Backend unavailable"
-    });
+    if (!res.headersSent) {
+      res.status(502).json({
+        error: "Backend unavailable"
+      });
+    } else if (!res.writableEnded) {
+      res.end();
+    }
   });
 
   req.pipe(proxyReq, {
@@ -126,11 +159,15 @@ app.use("/api", (req, res) => {
 });
 
 process.on("SIGTERM", () => {
+  shuttingDown = true;
+  if (backendRestartTimer) clearTimeout(backendRestartTimer);
   backendProcess?.kill("SIGTERM");
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
+  shuttingDown = true;
+  if (backendRestartTimer) clearTimeout(backendRestartTimer);
   backendProcess?.kill("SIGINT");
   process.exit(0);
 });
@@ -173,6 +210,7 @@ const waitForInternalBackend = async () => {
     });
 
     if (ready) {
+      backendRestartAttempt = 0;
       console.log('INTERNAL API READY');
       return;
     }
